@@ -111,7 +111,7 @@ def set_up_portfolio_db(portfolio_db: sqlite3.Connection):
    optimal allocations of funds to the assets in the portfolio. 
   If they already exist, then they will first be deleted.
 
-  Created on June 20-22, 2022
+  Created on June 20-22 and July 10, 2022
   """
 
   db_cursor: sqlite3.Cursor = portfolio_db.cursor()
@@ -124,6 +124,7 @@ def set_up_portfolio_db(portfolio_db: sqlite3.Connection):
   create_queries: Dict = \
     {'mean_returns': "create table mean_returns(asset integer, mean_return real, primary key(asset));",
      'return_covariance_matrix': "create table return_covariance_matrix(asset1 integer, asset2 integer, var_covar real, primary key(asset1, asset2));",
+     'filepaths': "create table filepaths(description text, filepath text, primary key(description));",
      'test_portfolios': "create table test_portfolios(portfolio integer, asset integer, allocation real, primary key(portfolio, asset));"}
 
   table_names: Set = set(create_queries.keys())
@@ -164,48 +165,33 @@ def set_up_console_menu() -> Dict:
 
 def import_return_data(portfolio_db: sqlite3.Connection):
   """
-  This function will ask the user for the location of the directory containing the file with
-   the asset return means and covariance matrix, will find and open the file, will run a couple
+  This function will ask the user for the directory and name of the file containing 
+   the asset return means and covariance matrix, will open the file, will run a couple
    of checks on the data, and if the data's OK will finally import the data into the 
    'portfolio_db' database.
 
-  Created on June 19-20 and July 4, 2022
+  Created on June 19-20, July 4, and July 10, 2022
   """
 
-  asset_data_dir: str = '-'
-
-
-  # get the folder from the user and check that it exists
-  while asset_data_dir != '':
-    os.system('clear')
-    
-    asset_data_dir = input("Please enter the location of the\n directory with the asset return statistics file: ")
-
-    if len(asset_data_dir) < 1:
-      return
-    elif not os.path.isdir(asset_data_dir):
-      print("\nThat directory can\'t be found.\n Try again, or press Enter to return to the main menu.")
-      time.sleep(6)
-    else:
-      break
-
-
-  # check that the file is located in the provided folder
-  return_data_file: str = 'asset_return_statistics.txt'
-  if not os.path.exists(asset_data_dir + return_data_file):
-    print(f"\nCan\'t find \'{return_data_file:s}\' file in the {asset_data_dir:s} directory.")
+  # get the file path of the file with the asset return data
+  function_results = get_filename('Looking for the file with asset returns and covariances')
+  if function_results['any_errors']:
+    print(function_results['message'])
     time.sleep(6)
     return
+
+
+  asset_return_filepath: str = function_results['filepath']
 
 
   # clear out the 'returns' table in the database.
   set_up_portfolio_db(portfolio_db)
 
 
-  # open the 'excess_return_statistics.txt' file.  check that it has the
-  #  expected format, if it has the format, then import its data and run
-  #  some checks on it.  if the data's good, then store it in the database.
-  import_results: Dict = get_asset_return_data(asset_data_dir, return_data_file, portfolio_db)
+  # open the file.  check that it has the expected format, if it has the
+  # format, then import its data and run some checks on it.  if the 
+  # data's good, then store it in the database.
+  import_results: Dict = get_asset_return_data(asset_return_filepath, portfolio_db)
   if import_results['any_errors']:
     print(f"{import_results['message']:s}")
     time.sleep(6)
@@ -215,12 +201,13 @@ def import_return_data(portfolio_db: sqlite3.Connection):
 
 
 
-def get_asset_return_data(directory_name: str, file_name: str, portfolio_db: sqlite3.Connection) -> Dict:
+def get_asset_return_data(asset_return_filepath: str, portfolio_db: sqlite3.Connection) -> Dict:
   """
-  This function will open the file file 'file_name' in the directory 'directory_name' and
-  parse the data in the file.  if it has the expected format and if the data passes some 
-  checks, then the function will save it to the 'mean_returns' and 
-  'return_covariance_matrix' tables in the 'portfolio_db' database.
+  This function will open the file using the 'asset_return_filepath' parameter and
+  parse the data in the file.  if it has the expected format and if the data passes
+  some checks, then the function will save it to the 'mean_returns' and 
+  'return_covariance_matrix' tables in the 'portfolio_db' database.  It will also
+  save the file and directory in the 'filepaths' table.
   
   The function will:
   * verify that the mean return and covariance matrix is composed of floating-point
@@ -236,10 +223,10 @@ def get_asset_return_data(directory_name: str, file_name: str, portfolio_db: sql
   blank if there aren't any problems or will be a description of the problem if there
   is a problem.
   
-  Created on June 19-20, 2022   
+  Created on June 19-20 and July 10, 2022   
   """
 
-  asset_data_file: IO = open(directory_name + '/' + file_name, 'r')
+  asset_data_file: IO = open(asset_return_filepath, 'r')
 
 
   # copy the mean returns and covariance matrix from the file
@@ -308,6 +295,7 @@ def get_asset_return_data(directory_name: str, file_name: str, portfolio_db: sql
   #  and perform the next set of tests.
   import_mean_returns(mean_return_data, portfolio_db) 
   import_covariance_matrix(covariance_data, portfolio_db)
+  import_filepath('asset_returns', asset_return_filepath, portfolio_db)
 
 
   # check the covariance matrix.  if it's invertible and positive semi-definite,
@@ -400,7 +388,7 @@ def import_covariance_matrix(covariance_data: List, portfolio_db: sqlite3.Connec
   db_cursor.close()	
 
 
-  return True
+  return
 
 
 
@@ -617,7 +605,7 @@ def calculate_portfolio_allocations(portfolio_db: sqlite3.Connection):
   Regardless of the choice taken, the function will save these portfolios'
    allocations to the 'test_portfolios' table in the database.
   
-  Created on June 20-22 and July 4, 2022  
+  Created on June 20-22, and July 4 and 10, 2022  
   """
     
   # first, calculate the portfolio allocations that maximize the growth rate
@@ -648,42 +636,28 @@ def calculate_portfolio_allocations(portfolio_db: sqlite3.Connection):
 
   if user_choice.lower() == 'y':
     user_choice = 'y'
-    
-    asset_data_dir: str = '-'
-
-    # get the folder from the user and check that it exists
-    while asset_data_dir != '':
-      os.system('clear')
-    
-      asset_data_dir = input("Please enter the location of the\n directory with the portfolio allocations file: ")
-  
-      if len(asset_data_dir) < 1:
-        print("Returning to main menu")
-        time.sleep(6)
-        return
-      elif not os.path.isdir(asset_data_dir):
-        print("\nThat directory can\'t be found.\n Try again, or press Enter to return to the main menu.")
-        time.sleep(6)
-      else:
-        break
 
 
-    # check that the file is located in the provided folder
-    portfolio_allocation_file: str = 'test_portfolios.txt'
-    if not os.path.exists(asset_data_dir + portfolio_allocation_file):
-      print(f"\nCan\'t find \'{portfolio_allocation_file:s}\' file in the {asset_data_dir:s} directory.")
+    # get the file path of the file with the asset return data
+    function_results = get_filename('Looking for the file with test portfolio allocations')
+    if function_results['any_errors']:
+      print(function_results['message'])
       time.sleep(6)
       return
 
 
+    portfolio_allocation_filepath: str = function_results['filepath']
+
+
     # get the portfolio allocation date from the file
-    import_results: Dict = get_user_portfolio_allocation_data(asset_data_dir, portfolio_allocation_file)
+    import_results: Dict = get_user_portfolio_allocation_data(portfolio_allocation_filepath)
     if import_results['any_errors']:
       print(f"{import_results['message']:s}")
       time.sleep(6)
       return
     else:
       user_portfolio_allocations = import_results['allocations']    
+      import_filepath('user_portfolios', portfolio_allocation_filepath, portfolio_db)
     
   elif user_choice.lower() == 'n' or len(user_choice) < 1:
     # create some random portfolio allocations around the one with the fastest growth rate
@@ -810,7 +784,7 @@ def calculate_portfolio_allocations(portfolio_db: sqlite3.Connection):
 
 
 
-def get_user_portfolio_allocation_data(directory_name: str, file_name: str) -> Dict:
+def get_user_portfolio_allocation_data(portfolio_allocation_filepath: str) -> Dict:
   """
   This function will open the file file 'file_name' in the directory 'directory_name' and
   parse the data in the file.  if it has the expected format and if the data passes some 
@@ -826,10 +800,10 @@ def get_user_portfolio_allocation_data(directory_name: str, file_name: str) -> D
   is a problem.  The third key, 'allocations', will be blank of there are any problems
   or the portfolio allocation list if there aren't any problems.
   
-  Created on June 22-23, 2022 
+  Created on June 22-23 and July 10, 2022 
   """
 
-  portfolio_allocation_file: IO = open(directory_name + '/' + file_name, 'r')
+  portfolio_allocation_file: IO = open(portfolio_allocation_filepath, 'r')
 
 
   # copy the portfolio allocation data from the file
@@ -1121,7 +1095,10 @@ def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
   os.system('clear')
 
   
-  # simulation parameters
+  # simulation parameters and other information
+  asset_returns_filepath: str = get_filepath('asset_returns', portfolio_db)
+  user_portfolio_filepath: str = get_filepath('user_portfolios', portfolio_db)
+
   mean_returns: np.ndarray = get_mean_returns(portfolio_db)
   if mean_returns.shape[0] == 1:
     print("Need to import mean returns.")
@@ -1228,7 +1205,8 @@ def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
 
 
   # calculate the statistics of the simulation and print them to the output file
-  print_simulation_results(geometric_mean_returns, portfolio_values, 
+  print_simulation_results(asset_returns_filepath, user_portfolio_filepath,
+                           geometric_mean_returns, portfolio_values, 
                            {'number_of_runs': number_of_runs, 'number_of_periods': number_of_periods,
                             'number_of_portfolios': number_of_portfolios,
                             'length_of_sample_period': length_of_sample_period,
@@ -1244,7 +1222,9 @@ def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
 
 
 
-def print_simulation_results(geometric_mean_returns: np.ndarray, 
+def print_simulation_results(asset_returns_filepath: str,
+                             user_portfolio_filepath: str, 
+                             geometric_mean_returns: np.ndarray, 
                              portfolio_values: np.ndarray, 
                              simulation_parameters: Dict,
                              asset_return_parameters: Dict,
@@ -1254,17 +1234,23 @@ def print_simulation_results(geometric_mean_returns: np.ndarray,
   This function will print the statistics on the geometric mean returns and on
    the percentiles of portfolio values.
 
-  Created on June 6 and 20, 2022
+  Created on June 6 and 20, July 10, 2022
   """
   # calculate the statistics of the geometric mean returns and portfolio values
   returns_statistics: np.ndarray = stats.describe(geometric_mean_returns, axis=1)
   portfolio_values_1_percentiles: np.ndarray = np.percentile(portfolio_values, q=1.0, axis=2)
   portfolio_values_50_percentiles: np.ndarray = np.percentile(portfolio_values, q=50.0, axis=2)
-  portfolio_values_75_percentiles: np.ndarray = np.percentile(portfolio_values, q=75.0, axis=2)
+
+
+  # print general information
+  results_file.write(f"Path to file with asset return statistics: {asset_returns_filepath:s}\n")
+
+  if user_portfolio_filepath != 'not found':
+    results_file.write(f"Path to file with user-provided portfolio allocations: {user_portfolio_filepath:s}\n")
 
   
   # print information on the simulation parameters
-  results_file.write(f"Number of simulation runs: {simulation_parameters['number_of_runs']:d}\n")
+  results_file.write(f"\nNumber of simulation runs: {simulation_parameters['number_of_runs']:d}\n")
   results_file.write(f"Number of periods per run: {simulation_parameters['number_of_periods']:d}\n")
   results_file.write(f"Number of portfolios: {simulation_parameters['number_of_portfolios']:d}\n")
 
@@ -1327,23 +1313,6 @@ def print_simulation_results(geometric_mean_returns: np.ndarray,
       results_file.write(f"\t{100.0 * current_allocation:6.4f}%")
 
 
-  results_file.write("\n\nLowest 1% of Portfolio Values")
-  results_file.write("\n-------------------------------------")
-
-  results_file.write("\nPeriod")
-
-  results_file.write("\n0")
-  for current_item in test_portfolios:
-    results_file.write(f"\t{simulation_parameters['starting_portfolio_value']:,.0f}")
-
-  measurement_periods: List = [x for x in range(0, simulation_parameters['number_of_periods'] + 1, simulation_parameters['length_of_sample_period'])]
-
-  for current_period in range(1, 11):
-    results_file.write(f"\n{measurement_periods[current_period]:d}")
-    for current_item in portfolio_values_1_percentiles[...,current_period - 1]:
-      results_file.write(f"\t{current_item:,.0f}")
-
-
   results_file.write("\n\nMedian of Portfolio Values")
   results_file.write("\n-------------------------------------")
 
@@ -1361,7 +1330,7 @@ def print_simulation_results(geometric_mean_returns: np.ndarray,
       results_file.write(f"\t{current_item:,.0f}")
 
 
-  results_file.write("\n\nUpper 25% of Portfolio Values")
+  results_file.write("\n\nLowest 1% of Portfolio Values")
   results_file.write("\n-------------------------------------")
 
   results_file.write("\nPeriod")
@@ -1374,8 +1343,10 @@ def print_simulation_results(geometric_mean_returns: np.ndarray,
 
   for current_period in range(1, 11):
     results_file.write(f"\n{measurement_periods[current_period]:d}")
-    for current_item in portfolio_values_75_percentiles[...,current_period - 1]:
+    for current_item in portfolio_values_1_percentiles[...,current_period - 1]:
       results_file.write(f"\t{current_item:,.0f}")
+
+
 
 
   return
@@ -1422,10 +1393,122 @@ def print_test_results(test_portfolios: np.ndarray,
 
 
 
+def get_filename(message_to_user: str) -> Dict:
+  """
+  This function will prompt the user to first select a directory that
+   contains a file and then to provide the name of a file.  The 
+   function will check that the directory exists and that the file
+   exists.
+
+  The function will return a dictionary with three possible keys.
+  * 'any_errors' will be True if there are any problems or False otherwise.
+  * 'message' will contain a message describing any problems or will be
+    blank if there aren't any problems.
+  * 'filepath' will contain the concatenation of the directory and file
+    name if there aren't any problems.
+
+  Created on July 10, 2022
+  """
+
+  # first, get the directory in which the file can be found and check
+  #  that it exists
+  user_provided_dir: str = '-'
+
+  while user_provided_dir != '':
+    os.system('clear')
+
+    print(message_to_user)
+    
+    print("\nPlease enter the location of the directory")
+    user_provided_dir = input(" with the file or press Enter to quit: ")
+
+    if len(user_provided_dir) < 1:
+      return {'any_errors': True, 'message': 'User quit function'}
+    elif not os.path.isdir(user_provided_dir):
+      print("\nThat directory can\'t be found.\n Try again, or press Enter to quit.")
+      time.sleep(6)
+    else:
+      break
+
+
+  if user_provided_dir[:-1] != '/':
+    user_provided_dir = user_provided_dir + '/'
+
+
+  # next get the file's name, and check that it exists and can be opened
+  user_provided_file: str = '-'
+
+  while user_provided_file != '':
+    os.system('clear')
+    
+    user_provided_file = input("Please enter the name of the file, or press Enter to quit: ")
+
+    if len(user_provided_file) < 1:
+      return {'any_errors': True, 'message': 'User quit function'}
+    elif not os.path.exists(user_provided_dir + user_provided_file):
+      print("\nThat file can\'t be found.\n Try again, or press Enter to quit.")
+      time.sleep(6)
+    else:
+      break
+
+
+  return {'any_errors': False, 'message': '', 
+          'filepath': user_provided_dir + user_provided_file}
 
 
 
+def import_filepath(table_key: str, table_value: str, portfolio_db: sqlite3.Connection):
+  """
+  This function will import the table key and value into a new record in the
+  'filepaths' table in the 'portfolio_db' database.
+  
+  Created on July 10, 2022
+  """
 
+  insert_query: str = 'insert into filepaths(description, filepath) values (?, ?);'
+
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
+
+  db_cursor.execute(insert_query, (table_key, table_value, ))
+
+  portfolio_db.commit()
+
+  db_cursor.close()	
+
+  return
+
+
+
+def get_filepath(table_key: str, portfolio_db: sqlite3.Connection) -> str:  
+  """
+  This function will query the 'filepaths' table in the 'portfolio_db'
+   database for the file path matching the key 'table_key'.  It will
+   return the file path if the key exists or 'not found' if is doesn't
+   exist.
+  
+  Created on July 10, 2022
+  """  
+
+  return_value: str = ''
+
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()  
+
+  select_query: str = 'select filepath from filepaths where description = ?;'
+
+
+  db_cursor.execute(select_query, (table_key, ))
+
+  return_records = db_cursor.fetchone()
+
+  if return_records is None:
+    return_value = 'not found'
+  else:
+    return_value = return_records[0]
+
+  
+  db_cursor.close()
+
+  return return_value
 
 
 

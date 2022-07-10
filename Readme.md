@@ -1,5 +1,5 @@
 ### Readme
-#### Last updated on July 4, 2022
+#### Last updated on July 10, 2022
 
 
 ##### Background
@@ -64,8 +64,8 @@ and you need to make sure that these modules are installed:
 The script uses other modules, but these come with a standard Python 3.x
 installation.  I installed all of these using pip, so I know that method works.
 
-Third, the scripts will look for the asset return statistics in a file
-named 'asset_return_statistics.txt'.  It has to a have a specific format:
+Third, the scripts will look for a file with the asset return statistics.
+It has to have a specific format:
 
 * the first line must have 'mean returns' on it
 * the second line must have the mean excess returns of the assets, separated
@@ -81,9 +81,9 @@ key to exit.  Each choice takes you to a new screen, asks you for
 information and/or shows you something, and then brings you back to this
 main menu.
 
-Choice **1** will ask you to enter the location of the directory in which 
-the 'asset_return_statistics.txt' file is located.  If it can find the
-directory and this file, then the script will read the contents of the file
+Choice **1** will ask you to enter the directory in which the file with
+asset mean returns and a covariance matrix is located.  If it can find the
+directory and file, then the script will read the contents of the file
 into an internal database.
 
 Choice **2** displays the mean returns and the covariance matrix.  This
@@ -104,21 +104,23 @@ to be negative.
 
 * Second, it will ask you if you want the computer to generate additional
 portfolios to test in a simulation, or if you want to import your own
-portfolios.  If you have the computer generate portfolios, it will create
+portfolios.
+  * If you have the computer generate portfolios, it will create
 them by making small random changes to two randomly-selected assets' 
-allocations in the Kelly Criterion portfolio.  If you import your own
-portfolios, you will be asked to enter the location of the directory in
-which the 'test_portfolios.txt' file is located.  If it can find the
-directory and the file, the script will read the contents of the file.
-Regardless of the how it gets the portfolios, the script will copy them
-and the Kelly Criterion-based portfolio into an internal database.
+allocations in the Kelly Criterion portfolio.
+
+  * If you import your own portfolios, you will be asked to enter the
+directory in which a file with portfolio allocations is located.  If it
+can find the directory and the file, the script will read the contents of
+the file.  Regardless of the how it gets the portfolios, the script will
+copy them and the Kelly Criterion-based portfolio into an internal database.
 
 * Lastly, the script will display up to six of the portfolios the computer
 generates or you provide, along with the Kelly Criterion-based one.  After
 twelve seconds, you will be taken back to the main menu.
 
-Note: the script expects the 'test_portfolios.txt' file to have a specific
-format:
+Note: the script expects the file with portfolio allocations to have a
+specific format:
 
 * the first line must have 'number of assets' on it
 * the second line must have the number of assets
@@ -130,15 +132,21 @@ format:
   each number.
 
 Choice **4** runs some simulations.  It uses the mean returns and
-covariance matrix to generate random asset returns.  It will use them to
-simulate values of the portfolios from Choice 3 into the future.  These
-simulations will go 600 periods into the future.  In each period, the 
-returns of the assets will be simulated, the portfolio's new value will
-be calculated, and then the portfolio will be rebalanced between the 
-different assets.  After 600 periods, the geometric mean growth rates of
-the portfolios will be recorded.  The simulations will be repeated for a
-total 10,000 times.  At the end, statistics on these simulations will
-be printed to a file named 'mulit-asset simulation_statistics'. 
+covariance matrix to generate random asset returns, using a multivariate
+normal distribution.  It will use the returns to simulate values of the
+portfolios from Choice 3 into the future.  These simulations will go 600
+periods into the future.  In each period, the returns of the assets will
+be simulated, the portfolio's new value will be calculated, and then the
+portfolio will be rebalanced between the different assets.  After 600 
+periods, the geometric mean growth rates of the portfolios will be 
+recorded.  The simulations will be repeated for a total 10,000 times.  At
+the end, statistics on each portfolio used in these simulations will be 
+printed to a file named 'mulit-asset simulation_statistics'.  These 
+statistics include:
+
+* mean, standard deviation, skewness, and kurtosis of geometric mean returns
+* median of portfolio values at select periods.
+* lowest 1% of portfolio values at select periods (1% VaR).
 
 ##### Hints and Other Information
 
