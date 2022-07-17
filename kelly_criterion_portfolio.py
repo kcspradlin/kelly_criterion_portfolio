@@ -157,7 +157,7 @@ def set_up_console_menu() -> Dict:
   console_menu['1'] = ('Import asset return data into internal db', 'import_return_data', )
   console_menu['2'] = ('Display imported asset return data', 'show_return_data', )
   console_menu['3'] = ('Calculate portfolio allocations', 'calculate_portfolio_allocations', )
-  console_menu['4'] = ('Estimate portfolio statistics', 'calculate_portfolio_statistics', )
+  console_menu['4'] = ('Estimate portfolio statistics', 'simulate_portfolio_values', )
 
   return console_menu
 
@@ -1071,7 +1071,7 @@ def get_portfolio_allocations(portfolio_db: sqlite3.Connection) -> np.ndarray:
 
 
 
-def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
+def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
   """
   This function will run a simulation.  It will create a set of portfolios,
    with allocations based on variations of the optimal portfolio (one of
@@ -1089,7 +1089,7 @@ def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
    Criterion to allocate wealth to risky venture usually allocate some
    percent of the optimal f's to the risky assets.
   
-  Created on June 6-13, 20-23, 2022  
+  Created on June 6-13 and 20-23, 2022  
   """
 
   os.system('clear')
@@ -1150,9 +1150,17 @@ def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
   portfolio_values: np.ndarray = np.zeros((number_of_portfolios, number_of_sample_periods, number_of_runs), dtype=np.float32)
   geometric_mean_returns: np.ndarray = np.zeros((number_of_portfolios, number_of_runs), dtype=np.float32)
 
+  portfolio_drawdown_factors: np.ndarray = np.array([0.5, 0.25, 0.10, 0.01])
+  portfolio_drawdown_levels: np.ndarray = np.ones((portfolio_drawdown_factors.shape[0]), dtype=np.float32)
+  portfolio_drawdown_levels = np.multiply(portfolio_drawdown_factors, starting_portfolio_value)
+
+  portfolio_drawdown_hits: np.ndarray = np.zeros((number_of_portfolios, portfolio_drawdown_factors.shape[0], number_of_runs), dtype=np.int64)
+  portfolio_drawdown_probabilities: np.ndarray = np.zeros((number_of_portfolios, portfolio_drawdown_factors.shape[0]), dtype=np.float32)
+
 
   # the simulation
-  results_file: IO = open('mulit-asset simulation_statistics', 'w')
+  results_filename: str = get_current_statistics_filename()
+  results_file: IO = open(results_filename, 'w')
   progress_bar = tqdm.tqdm(total=number_of_runs)
 
   for current_run in range(number_of_runs):
@@ -1193,6 +1201,14 @@ def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
 #                           current_portfolio_value, results_file)
 
 
+    # check if the portfolio values hit the drawdown levels
+    # is there a way to do this with numpy functions instead of loop?
+    for current_portfolio in range(number_of_portfolios):
+      for current_index, current_level in enumerate(portfolio_drawdown_levels):
+        if current_portfolio_value[current_portfolio, 0] <= current_level:
+          portfolio_drawdown_hits[current_portfolio, current_index, current_run] = 1
+      
+
     # record the geometric mean returns of the current run of the simulation
     geometric_mean_returns[...,current_run] = np.sum(current_portfolio_value, axis=1) / starting_portfolio_value
     geometric_mean_returns[...,current_run] = np.power(geometric_mean_returns[...,current_run], 1.0 / number_of_periods)
@@ -1204,6 +1220,10 @@ def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
   progress_bar.close()
 
 
+  portfolio_drawdown_probabilities = np.sum(portfolio_drawdown_hits, axis=2)
+  portfolio_drawdown_probabilities = np.divide(portfolio_drawdown_probabilities, float(number_of_runs))
+
+
   # calculate the statistics of the simulation and print them to the output file
   print_simulation_results(asset_returns_filepath, user_portfolio_filepath,
                            geometric_mean_returns, portfolio_values, 
@@ -1213,6 +1233,7 @@ def calculate_portfolio_statistics(portfolio_db: sqlite3.Connection):
                             'starting_portfolio_value': starting_portfolio_value},
                            {'asset_mean_returns': mean_returns,
                             'asset_covariance_matrix': covariance_matrix},
+                           portfolio_drawdown_levels, portfolio_drawdown_probabilities,
                            test_portfolios, results_file)
 
 
@@ -1228,13 +1249,15 @@ def print_simulation_results(asset_returns_filepath: str,
                              portfolio_values: np.ndarray, 
                              simulation_parameters: Dict,
                              asset_return_parameters: Dict,
+                             portfolio_drawdown_levels: np.ndarray,
+                             portfolio_drawdown_probabilities: np.ndarray,
                              test_portfolios: np.ndarray,
                              results_file: IO):
   """
   This function will print the statistics on the geometric mean returns and on
    the percentiles of portfolio values.
 
-  Created on June 6 and 20, July 10, 2022
+  Created on June 6 and 20, July 10-13, 2022
   """
   # calculate the statistics of the geometric mean returns and portfolio values
   returns_statistics: np.ndarray = stats.describe(geometric_mean_returns, axis=1)
@@ -1304,7 +1327,7 @@ def print_simulation_results(asset_returns_filepath: str,
     results_file.write(f"\t{100.0 * current_item:6.4f}%")
 
 
-  # print the three percentiles of the portfolio values over the simulation's time horizon
+  # print the two percentiles of the portfolio values over the simulation's time horizon
   results_file.write("\nAsset Allocations")
   for asset_number, asset_allocations in enumerate(test_portfolios.transpose()):
     results_file.write(f"\n* {asset_number:d}")
@@ -1345,6 +1368,51 @@ def print_simulation_results(asset_returns_filepath: str,
     results_file.write(f"\n{measurement_periods[current_period]:d}")
     for current_item in portfolio_values_1_percentiles[...,current_period - 1]:
       results_file.write(f"\t{current_item:,.0f}")
+
+
+  # calculate and print the CVaRs for the 1st percentile
+  portfolio_values_1_percentiles_reshape: np.ndarray = \
+    portfolio_values_1_percentiles.reshape((portfolio_values_1_percentiles.shape[0],
+                                            portfolio_values_1_percentiles.shape[1], 1))
+
+  lower_percentile_values: np.ndarray = \
+    np.where(portfolio_values < portfolio_values_1_percentiles_reshape, portfolio_values, 0.0)
+  lower_percentile_counts: np.ndarray = \
+    np.where(portfolio_values < portfolio_values_1_percentiles_reshape, 1.0, 0.0)
+
+  lower_percentile_totals_num: np.ndarray = np.sum(lower_percentile_values, axis=2)
+  lower_percentile_totals_den: np.ndarray = np.sum(lower_percentile_counts, axis=2)
+  cvars: np.ndarray = np.divide(lower_percentile_totals_num, lower_percentile_totals_den)
+
+
+  results_file.write("\n\nCVaR/Expected Shortfall at Lowest 1% of Portfolio Values")
+  results_file.write("\n-------------------------------------")
+
+  results_file.write("\nPeriod")
+
+  results_file.write("\n0")
+  for current_item in test_portfolios:
+    results_file.write(f"\t{simulation_parameters['starting_portfolio_value']:,.0f}")
+
+  measurement_periods: List = [x for x in range(0, simulation_parameters['number_of_periods'] + 1, simulation_parameters['length_of_sample_period'])]
+
+  for current_period in range(1, 11):
+    results_file.write(f"\n{measurement_periods[current_period]:d}")
+    for current_item in cvars[...,current_period - 1]:
+      results_file.write(f"\t{current_item:,.0f}")
+
+
+  # print the portfolio drawdown probabilities
+  results_file.write("\n\nProbabilities of Portfolio Values Reaching Specific Values")
+  results_file.write("\n-------------------------------------")
+
+  results_file.write("\nPortfolio Value")
+  
+  for current_index, current_level in enumerate(portfolio_drawdown_levels):
+    results_file.write(f"\n{current_level:,.0f}")
+    for current_item in portfolio_drawdown_probabilities[...,current_index]:
+      results_file.write(f"\t{100.0 * current_item:4.2f}%")
+    
 
 
 
@@ -1509,6 +1577,48 @@ def get_filepath(table_key: str, portfolio_db: sqlite3.Connection) -> str:
   db_cursor.close()
 
   return return_value
+
+
+
+def get_current_statistics_filename() -> str:
+  """
+  This function will search in the current directory for any files whose
+   names begin with 'multi-asset_simulation_statistics_v'.  It will then
+   find the largest number after the '_v' in the name.  It will 
+   increment the number by one and return a string, for the new
+   statistics filename, that begins with 'multi-asset_simulation_statistics_v'
+   and ends with the incremented number.
+
+  If it can't find any files whose names begin with 
+   'multi-asset_simulation_statistics_v', the function will just return
+   'multi-asset_simulation_statistics_v1'.
+
+  Created on July 16, 2022
+  """
+  
+  highest_number: int = 0
+
+
+  all_files: List = os.listdir('./')
+
+  for current_file in all_files:
+    if len(current_file) > 35:
+      if current_file[:35] == 'multi-asset_simulation_statistics_v':
+        current_number: int = 0
+
+        try:
+          current_number = int(current_file[35:])
+        except:
+          current_number = 0
+
+        if current_number > highest_number:
+          highest_number = current_number
+
+
+  if highest_number > 0:
+    return f"multi-asset_simulation_statistics_v{highest_number + 1:d}"
+  else:
+    return "multi-asset_simulation_statistics_v1"
 
 
 

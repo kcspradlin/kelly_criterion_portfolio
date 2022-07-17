@@ -1,5 +1,5 @@
 ### Readme
-#### Last updated on July 10, 2022
+#### Last updated on July 16, 2022
 
 
 ##### Background
@@ -53,7 +53,7 @@ Here are some instructions for using the script.
 
 First, you need to run the scripts from the command line.
 
-Second, you need to use Python 3.x to run it (it wrote it using Python 3.9.2)
+Second, you need to use Python 3.x to run it (I wrote it using Python 3.9.2)
 and you need to make sure that these modules are installed:
 
 * numpy
@@ -134,19 +134,25 @@ specific format:
 Choice **4** runs some simulations.  It uses the mean returns and
 covariance matrix to generate random asset returns, using a multivariate
 normal distribution.  It will use the returns to simulate values of the
-portfolios from Choice 3 into the future.  These simulations will go 600
-periods into the future.  In each period, the returns of the assets will
-be simulated, the portfolio's new value will be calculated, and then the
-portfolio will be rebalanced between the different assets.  After 600 
-periods, the geometric mean growth rates of the portfolios will be 
-recorded.  The simulations will be repeated for a total 10,000 times.  At
-the end, statistics on each portfolio used in these simulations will be 
-printed to a file named 'mulit-asset simulation_statistics'.  These 
+portfolios from Choice 3 600 periods into the future.  In each period, 
+the returns of the assets will be simulated, the portfolio's new value 
+will be calculated, and then the portfolio will be rebalanced between the 
+different assets.  After 600 periods, the geometric mean growth rates of 
+the portfolios will be recorded.  The simulations will be repeated for a 
+total 10,000 times.  At the end, statistics on each portfolio used in 
+these simulations will be printed to a file named 
+'multi-asset simulation_statistics_v' followed by a number.  These 
 statistics include:
 
 * mean, standard deviation, skewness, and kurtosis of geometric mean returns
 * median of portfolio values at select periods.
 * lowest 1% of portfolio values at select periods (1% VaR).
+* the average of the portfolio values that are equal to or less than the
+  lowest 1% of portfolio values at select periods (1% Conditional 
+  VaR/Expected Shortfall)
+* The probabilities that the portfolio values will reach specific
+  portions of the starting portfolio value (this one's inspired by 
+  section 3.3 of Thorp's "The Kelly Criterion in Blackjack..." paper).
 
 ##### Hints and Other Information
 
