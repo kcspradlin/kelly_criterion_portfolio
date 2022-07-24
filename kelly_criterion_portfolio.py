@@ -30,7 +30,7 @@
 #  
 
 
-from typing import Dict, List, IO
+from typing import Dict, List, IO, Set
 import sqlite3
 import os
 import time
@@ -56,6 +56,9 @@ def main():
     optimal allocations.
   
   Created in June 15-23, 2022
+  Modified on July 24, 2022
+  * used refactoring tips from:
+    https://www.python-engineer.com/posts/python-refactoring-tips/
   """
   # set up a internal database that holds user-provided and 
   #  calculated asset return and portfolio data
@@ -63,43 +66,45 @@ def main():
   set_up_portfolio_db(portfolio_db)
 
 
-
   # clear screen then print console menu then wait for user input
   console_menu: Dict = set_up_console_menu()
-  user_input: str = '-'
+  user_input: str = ''
 
-  while user_input != '':
+  while not user_input:
     os.system('clear')
-    
+
     print("This application will estimate a portfolio's asset")
     print(" allocations and return statistics, based on information")
     print(" provided by the user, in order to maximize the growth")
     print(" rate of the portfolio\'s value.\n")
-    
+
     for item_number, item_command in console_menu.items():
       print(f"{item_number:s}: {item_command[0]:s}")
-  
-  
+
+
     user_input = input("\nSelect a command, or press Enter to exit: ")
 
-    if user_input == '':
+    if not user_input:
       print("\nBye\n")
       portfolio_db.close()
 
       return
     elif user_input not in console_menu:
       print("\nYou must select one of the commands or just press Enter")
+      user_input = ''
       time.sleep(3)
     else:
       if console_menu[user_input][1] in globals():
         globals()[console_menu[user_input][1]](portfolio_db)
+        user_input = ''
       else:
         print("\nThe function for that command hasn't yet been set up.")
+        user_input = ''
         time.sleep(3)
 
-  
+
   portfolio_db.close()
-  
+
   return
 
 
@@ -152,7 +157,7 @@ def set_up_portfolio_db(portfolio_db: sqlite3.Connection):
 
 
 def set_up_console_menu() -> Dict:
-  
+
   console_menu: Dict = {}
   console_menu['1'] = ('Import asset return data into internal db', 'import_return_data', )
   console_menu['2'] = ('Display imported asset return data', 'show_return_data', )
@@ -197,7 +202,7 @@ def import_return_data(portfolio_db: sqlite3.Connection):
     time.sleep(6)
     return
 
-  return  
+  return
 
 
 
@@ -226,75 +231,26 @@ def get_asset_return_data(asset_return_filepath: str, portfolio_db: sqlite3.Conn
   Created on June 19-20 and July 10, 2022   
   """
 
-  asset_data_file: IO = open(asset_return_filepath, 'r')
+  # parse the data in the file
+  parse_function_results: Dict = parse_asset_return_file(asset_return_filepath)
+  if parse_function_results['any_errors']:
+    return {'any_errors': True, 'message': parse_function_results['message']}
 
 
-  # copy the mean returns and covariance matrix from the file
-  line_from_file: str = asset_data_file.readline()
-  if line_from_file == "mean returns\n":
-    mean_return_data: str = asset_data_file.readline()
-  else:
-    return {'any_errors': True, 'message': "\'mean_returns\' not found on first line"}
-
-  
-  for counter in range(2):
-    line_from_file = asset_data_file.readline()
-
-  if line_from_file == "covariance matrix\n":
-    covariance_data: List = []
-
-    while len(line_from_file) > 0:
-      line_from_file = asset_data_file.readline()
-      if len(line_from_file) > 0:
-        covariance_data.append(line_from_file)
-
-  else:
-    return {'any_errors': True, 'message': "\'covariance matrix\' not found on fourth line"}
-
-
-  number_mean_returns: int = 0
-  number_rows_covar_matrix: int = -1
-  number_columns_covar_matrix: int = -2
-
-  # check the mean return data for any problems
-  mean_values: List = re.findall(f'\w+\.*\w*', mean_return_data)
-  for current_value in mean_values:
-    if not is_float(current_value):
-      return {'any_errors': True, 'message': f"mean return value {current_value:s} isn\'t a floating-point number"}
-
-  number_mean_returns = len(mean_values)
-
-
-  # check the covariance matrix
-  for current_row in covariance_data:
-    covariance_values: List = re.findall(f'\w+\.*\w*', current_row)    
-
-    for current_value in covariance_values:
-      if not is_float(current_value):
-        return {'any_errors': True, 'message': f"covariance value {current_value:s} isn\'t a floating-point number"}
-
-  number_rows_covar_matrix = len(covariance_data)
-  number_columns_covar_matrix = len(covariance_values)
-  
-
-  # verify that the number of mean returns matches the number of rows in
-  #  the covariance matrix.  a later check will ensure that the covariance
-  #  matrix is square.
-  if number_mean_returns != number_rows_covar_matrix:
-    return{'any_errors': True, 
-           'message': f"number of mean returns = {number_mean_returns:d}, number of rows in covariance matrix = {number_rows_covar_matrix:d}"}
-
-  if number_rows_covar_matrix != number_columns_covar_matrix:
-    return{'any_errors': True, 
-           'message': f"number of rows in covariance matrix = {number_rows_covar_matrix:d}, number of columns in covariance matrix = {number_columns_covar_matrix:d}"}
+  # validate the data in the file
+  validation_function_results: Dict = \
+    validate_asset_return_data(parse_function_results['mean_return_data'], 
+                               parse_function_results['covariance_data'])
+  if validation_function_results['any_errors']:
+    return {'any_errors': True, 'message': validation_function_results['message']}
 
 
   # since there aren't any problems with the mean returns and covariance
   #  matrix data, save them to the database.  also, need the covariance
   #  matrix to be in the database in order to put it into a numpy array
   #  and perform the next set of tests.
-  import_mean_returns(mean_return_data, portfolio_db) 
-  import_covariance_matrix(covariance_data, portfolio_db)
+  import_mean_returns(parse_function_results['mean_return_data'], portfolio_db)
+  import_covariance_matrix(parse_function_results['covariance_data'], portfolio_db)
   import_filepath('asset_returns', asset_return_filepath, portfolio_db)
 
 
@@ -308,15 +264,124 @@ def get_asset_return_data(asset_return_filepath: str, portfolio_db: sqlite3.Conn
     time.sleep(6)
 
 
-  function_return: typing.Dict = is_matrix_pos_semidef(covariance_matrix)
+  function_return: Dict = is_matrix_pos_semidef(covariance_matrix)
   if not function_return['pass_test']:
     print("The covariance matrix needs to be positive semi-definite to run the simulations.")
     print(f"{function_return['message']:s}")
     print("Try different asset(s) or making small changes to the matrix elements.")
     time.sleep(6)
-    
+
+
+  return {'any_errors': False, 'message': ''}
+
+
+
+def parse_asset_return_file(asset_return_filepath: str) -> Dict:
+  """
+  This function will open the file using the 'asset_return_filepath' parameter
+   and parse the data in the file.  
+
+  It will return a dictionary with four keys:
+  * 'any_errors', will be False if there are any problems or True if there are any
+  * 'message', will be blank if there aren't any problems or will be a description
+     of the problem if there is one
+  * 'mean_return_data' will be a string of mean returns from the file or blank if
+    there is a problem
+  * 'covariance_data' will be a list of strings of the covariance matrix from the
+    file or blank if there is a problem
+
+  Created on July 18, 2022
+  """
+
+  asset_data_file: IO = open(asset_return_filepath, 'r')
+
+
+  # copy the mean returns and covariance matrix from the file
+  line_from_file: str = asset_data_file.readline()
+  if line_from_file == "mean returns\n":
+    mean_return_data: str = asset_data_file.readline()
+  else:
+    return {'any_errors': True, 
+            'message': "\'mean_returns\' not found on first line"}
+
+
+  for counter in range(2):
+    line_from_file = asset_data_file.readline()
+
+  if line_from_file == "covariance matrix\n":
+    covariance_data: List = []
+
+    while line_from_file:
+      line_from_file = asset_data_file.readline()
+      if line_from_file:
+        covariance_data.append(line_from_file)
+
+  else:
+    return {'any_errors': True, 
+            'message': "\'covariance matrix\' not found on fourth line"}
+
 
   asset_data_file.close()
+
+
+  return {'any_errors': False, 'message': '', 
+          'mean_return_data': mean_return_data, 
+          'covariance_data': covariance_data}
+
+
+
+def validate_asset_return_data(mean_return_data: str, covariance_data: List) -> Dict:
+  """
+  This function will check if the data in the 'mean_return_data' string
+   and 'covariance_data' list of strings has the expected formats and 
+   passes some checks.
+
+  It will return a dictionary with two values:
+  * 'any_errors', will be False if there are any problems or True if there are any
+  * 'message', will be blank if there aren't any problems or will be a description
+     of the problem if there is one
+
+  Created on July 18, 2022
+  """
+
+  number_mean_returns: int = 0
+  number_rows_covar_matrix: int = -1
+  number_columns_covar_matrix: int = -2
+
+  # check the mean return data for any problems
+  mean_values: List = re.findall(r'\w+\.*\w*', mean_return_data)
+  for current_value in mean_values:
+    if not is_float(current_value):
+      return {'any_errors': 
+              True, 'message': f"mean return value {current_value:s} isn\'t a floating-point number"}
+
+  number_mean_returns = len(mean_values)
+
+
+  # check the covariance matrix
+  for current_row in covariance_data:
+    covariance_values: List = re.findall(r'\w+\.*\w*', current_row)
+
+    for current_value in covariance_values:
+      if not is_float(current_value):
+        return {'any_errors': True, 
+                'message': f"covariance value {current_value:s} isn\'t a floating-point number"}
+
+  number_rows_covar_matrix = len(covariance_data)
+  number_columns_covar_matrix = len(covariance_values)
+
+
+  # verify that the number of mean returns matches the number of rows in
+  #  the covariance matrix.  a later check will ensure that the covariance
+  #  matrix is square.
+  if number_mean_returns != number_rows_covar_matrix:
+    return{'any_errors': True, 
+           'message': f"number of mean returns = {number_mean_returns:d}, number of rows in covariance matrix = {number_rows_covar_matrix:d}"}
+
+  if number_rows_covar_matrix != number_columns_covar_matrix:
+    return{'any_errors': True, 
+           'message': f"number of rows in covariance matrix = {number_rows_covar_matrix:d}, number of columns in covariance matrix = {number_columns_covar_matrix:d}"}
+
 
   return {'any_errors': False, 'message': ''}
 
@@ -338,18 +403,18 @@ def import_mean_returns(mean_return_data: str, portfolio_db: sqlite3.Connection)
 
   insert_records: List = []
 
-  
+
   # put the data into insert_records list, then upload it to the 'mean_returns' table
-  mean_values: List = re.findall(f'[-\+]*\w+\.*\w*', mean_return_data)
+  mean_values: List = re.findall(r'[-\+]*\w+\.*\w*', mean_return_data)
   for current_item, current_value in enumerate(mean_values):
     if is_float(current_value):
-      insert_records.append((current_item + 1, float(current_value), ))  
+      insert_records.append((current_item + 1, float(current_value), ))
 
 
   db_cursor.executemany(insert_query, insert_records)
   portfolio_db.commit()
 
-  db_cursor.close()	
+  db_cursor.close()
 
 
   return
@@ -372,20 +437,20 @@ def import_covariance_matrix(covariance_data: List, portfolio_db: sqlite3.Connec
 
   insert_records: List = []
 
-  
+
   # put the data into insert_records list, then upload it to the 'return_covariance_matrix' table
   for current_item1, current_row in enumerate(covariance_data):
-    covariance_values: List = re.findall(f'[-\+]*\w+\.*\w*', current_row)    
+    covariance_values: List = re.findall(r'[-\+]*\w+\.*\w*', current_row)
 
     for current_item2, current_value in enumerate(covariance_values):
       if is_float(current_value):
-        insert_records.append((current_item1 + 1, current_item2 + 1, float(current_value), ))  
+        insert_records.append((current_item1 + 1, current_item2 + 1, float(current_value), ))
 
 
   db_cursor.executemany(insert_query, insert_records)
   portfolio_db.commit()
 
-  db_cursor.close()	
+  db_cursor.close()
 
 
   return
@@ -397,17 +462,17 @@ def is_float(test_input) -> bool:
   This function will return True if 'test_input' can be converted to a floating-point
   number and False if not.
   
-  Created on June 19, 2022  
+  Created on June 19, 2022
   """
   
   try:
     test_number = float(test_input)
-    return True	  
-	  
+    return True
+
   except:
     return False
-  
-  
+
+
 
 def is_matrix_pos_semidef(test_matrix: np.array) -> Dict:
   """
@@ -433,37 +498,36 @@ def is_matrix_pos_semidef(test_matrix: np.array) -> Dict:
 
 
   # check if the matrix is square
-  matrix_dimensions: typing.List = list(test_matrix.shape)
-  
+  matrix_dimensions: List = list(test_matrix.shape)
+
   if len(matrix_dimensions) != 2:
     message = 'Matrix needs to have 2 dimensions'
-    return {'pass_test': pass_test, 'message': message} 
-  
+    return {'pass_test': pass_test, 'message': message}
+
   elif matrix_dimensions[0] != matrix_dimensions[1]:
     message = 'Matrix needs to be square'
-    return {'pass_test': pass_test, 'message': message} 
-  
-  
+    return {'pass_test': pass_test, 'message': message}
+
+
   # check if the matrix is Hermitian
   complex_conjugate: np.array = np.matrix.getH(test_matrix)
-  
+
   if not np.array_equal(test_matrix, complex_conjugate):
     message = "Matrix isn\'t Hermitian - equal to complex conjugate of itself"
-    return {'pass_test': pass_test, 'message': message} 
-  
-  
+    return {'pass_test': pass_test, 'message': message}
+
+
   # calculate the matrix's eigenvalues and check if any are negative
   for current_eigenvalue in np.linalg.eigvals(test_matrix):
     if current_eigenvalue < 0:
       message = f"Matrix has eigenvalue of {current_eigenvalue:6.4f}"
       break
-      
-  
-  if len(message) > 0:
+
+
+  if message:
     return {'pass_test': pass_test, 'message': message}
-
-
-  return {'pass_test': True, 'message': message}
+  else:
+    return {'pass_test': True, 'message': ''}
 
 
 
@@ -484,22 +548,22 @@ def show_return_data(portfolio_db: sqlite3.Connection):
 
   covariance_matrix: np.ndarray = get_covariance_matrix(portfolio_db)
 
-  
+
   print("Mean returns")
   print(mean_returns)
-  
+
   print("\nCovariance matrix")
   print(covariance_matrix)
 
 
   time.sleep(6)
-  
+
 
   return
 
 
 
-def get_mean_returns(portfolio_db: sqlite3.Connection) -> np.ndarray:  
+def get_mean_returns(portfolio_db: sqlite3.Connection) -> np.ndarray:
   """
   This function will query the 'mean_returns' table in the 'portfolio_db'
    database for its contents, and then put them into a numpy array, which
@@ -508,11 +572,11 @@ def get_mean_returns(portfolio_db: sqlite3.Connection) -> np.ndarray:
   Created on June 20, 2022
   Modified on July 3, 2022 - removed dtype from mean_returns declaration,
    to get quadprog.solve_qp function to work.
-  """  
+  """
 
   # first, get the number of assets in the 'mean_returns' table, in order
   #  to set up the numpy array
-  db_cursor: sqlite3.Cursor = portfolio_db.cursor()  
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
 
   count_query: str = 'select max(asset) from mean_returns;'
 
@@ -523,7 +587,7 @@ def get_mean_returns(portfolio_db: sqlite3.Connection) -> np.ndarray:
   if return_records[0] is not None:
     mean_returns: np.ndarray = np.zeros((return_records[0], 1))
   else:
-    mean_returns: np.ndarray = np.zeros(1.0)
+    mean_returns: np.ndarray = np.zeros(1)
     return mean_returns
 
 
@@ -536,16 +600,16 @@ def get_mean_returns(portfolio_db: sqlite3.Connection) -> np.ndarray:
 
   if return_records is not None:
     for current_record in return_records:
-      mean_returns[current_record[0] - 1, 0] = current_record[1] 
-  
-  
+      mean_returns[current_record[0] - 1, 0] = current_record[1]
+
+
   db_cursor.close()
 
   return mean_returns
 
 
 
-def get_covariance_matrix(portfolio_db: sqlite3.Connection) -> np.ndarray:  
+def get_covariance_matrix(portfolio_db: sqlite3.Connection) -> np.ndarray:
   """
   This function will query the 'return_covariance_matrix' table in the 
    'portfolio_db' database for its contents, and then put them into a
@@ -554,11 +618,11 @@ def get_covariance_matrix(portfolio_db: sqlite3.Connection) -> np.ndarray:
   Created on June 20, 2022
   Modified on July 3, 2022 - removed dtype from mean_returns declaration,
    to get quadprog.solve_qp function to work.
-  """  
+  """
 
   # first, get the number of assets in the 'return_covariance_matrix' table,
   #  in order to set up the numpy array
-  db_cursor: sqlite3.Cursor = portfolio_db.cursor()  
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
 
   count_query: str = 'select max(asset1), max(asset2) from return_covariance_matrix;'
 
@@ -569,7 +633,7 @@ def get_covariance_matrix(portfolio_db: sqlite3.Connection) -> np.ndarray:
   if return_records[0] is not None:
     covar_matrix: np.ndarray = np.zeros((return_records[0], return_records[1]))
   else:
-    covar_matrix: np.ndarray = np.zeros(1.0)
+    covar_matrix: np.ndarray = np.zeros(1)
     return covar_matrix
 
 
@@ -582,9 +646,9 @@ def get_covariance_matrix(portfolio_db: sqlite3.Connection) -> np.ndarray:
 
   if return_records is not None:
     for current_record in return_records:
-      covar_matrix[current_record[0] - 1, current_record[1] - 1] = current_record[2] 
-  
-  
+      covar_matrix[current_record[0] - 1, current_record[1] - 1] = current_record[2]
+
+
   db_cursor.close()
 
   return covar_matrix
@@ -597,47 +661,65 @@ def calculate_portfolio_allocations(portfolio_db: sqlite3.Connection):
    the growth rate of the portfolio's value, under the assumptions that
    the assets' rates of growth are joint normally distributed and that
    the total of the allocations add up to 100%.
-  Then, it will calculate 11 portfolios to test the growth rate of this
-   portfolio.
-  Next, it will ask the user if they want to use these portfolios in the
-   simulation or if they want to import some portfolio (up to 11) from
-   the 'test_portfolios.txt' file.
+
+  Next, it will ask the user if they want to use 11 randomly-created
+   portfolios in the simulation or if they want to import some portfolios
+  (up to 11) from their own file.  
+
   Regardless of the choice taken, the function will save these portfolios'
    allocations to the 'test_portfolios' table in the database.
   
-  Created on June 20-22, and July 4 and 10, 2022  
+  Created on June 20-22, and July 4, 10, and 20, 2022  
   """
-    
+
   # first, calculate the portfolio allocations that maximize the growth rate
-  function_results: Dict = calculate_optimal_fs(portfolio_db)
+  # get the mean return and covariance matrices, if they have been imported.
+  mean_returns: np.ndarray = get_mean_returns(portfolio_db)
+  if mean_returns.shape[0] == 1:
+   print("Need to import mean returns.")
+   return
+
+
+  covariance_matrix: np.ndarray = get_covariance_matrix(portfolio_db)
+  if covariance_matrix.shape[0] == 1:
+   print("Need to import covariance matrix.")
+   return
+
+
+  # determine if the user wants the portfolio to be build only with long
+  #  positions, or if both long and short positions are OK
+  user_response: str = get_type_portfolio_positions()
+
+  if user_response == 'y':
+    long_only_portfolio: bool = True
+  else:
+    long_only_portfolio: bool = False
+
+
+  # calculate the optimal portfolio
+  function_results: Dict = \
+    calculate_optimal_fs(mean_returns, covariance_matrix, long_only_portfolio)
   if function_results['any_errors']:
     print(f"{function_results['message']:s}")
     time.sleep(6)
     return
-  else:
-    optimal_fs: np.ndarray = function_results['optimal_fs']    
-    long_only_portfolio: bool = function_results['long_only']
 
-
-  number_of_assets: int = optimal_fs.shape[0]
-
-  user_portfolio_allocations: List = []
-  computer_portfolio_allocations: List = []
+  optimal_fs: np.ndarray = function_results['optimal_fs']
 
 
   # ask the user if they want to use test portfolios provided by them of
   #  if they want the function to generate some random portfolios.
+  user_portfolio_allocations: List = []
+  computer_portfolio_allocations: List = []
+
+
   os.system('clear')
 
-  user_choice: str = '-'
-
-  user_choice = input("Do you want to provide portfolio allocations to test?\n (Y for yes or N or Enter key for no) ")
+  user_choice: str = \
+    input("Do you want to provide portfolio allocations to test?\n (Y for yes or N or Enter key for no) ")
 
 
   if user_choice.lower() == 'y':
-    user_choice = 'y'
-
-
     # get the file path of the file with the asset return data
     function_results = get_filename('Looking for the file with test portfolio allocations')
     if function_results['any_errors']:
@@ -648,132 +730,57 @@ def calculate_portfolio_allocations(portfolio_db: sqlite3.Connection):
 
     portfolio_allocation_filepath: str = function_results['filepath']
 
-
     # get the portfolio allocation date from the file
     import_results: Dict = get_user_portfolio_allocation_data(portfolio_allocation_filepath)
     if import_results['any_errors']:
       print(f"{import_results['message']:s}")
       time.sleep(6)
       return
-    else:
-      user_portfolio_allocations = import_results['allocations']    
-      import_filepath('user_portfolios', portfolio_allocation_filepath, portfolio_db)
-    
-  elif user_choice.lower() == 'n' or len(user_choice) < 1:
-    # create some random portfolio allocations around the one with the fastest growth rate
-    number_of_portfolios: int = 11
-    
-    for current_portfolio in range(number_of_portfolios):
-      computer_portfolio_allocations.append(list())
 
-    for current_asset, current_allocation in enumerate(optimal_fs):
-      if current_asset < number_of_assets:
-        for current_portfolio in computer_portfolio_allocations:
-          current_portfolio.append(current_allocation)
+    user_portfolio_allocations = import_results['allocations']
+    import_filepath('user_portfolios', portfolio_allocation_filepath, portfolio_db)
 
-
-    for current_item in range(number_of_portfolios):
-      assets_to_vary: List = random.sample([x for x in range(number_of_assets)], 2)
-      variance_size: float = random.random()
-
-      if long_only_portfolio:
-        if computer_portfolio_allocations[current_item][assets_to_vary[1]] <= \
-           computer_portfolio_allocations[current_item][assets_to_vary[0]]:
-          if computer_portfolio_allocations[current_item][assets_to_vary[0]] - variance_size < 0.0:
-            computer_portfolio_allocations[current_item][assets_to_vary[1]] = \
-              computer_portfolio_allocations[current_item][assets_to_vary[1]] + \
-              computer_portfolio_allocations[current_item][assets_to_vary[0]]
-            computer_portfolio_allocations[current_item][assets_to_vary[0]] = 0.0
-          else:
-            computer_portfolio_allocations[current_item][assets_to_vary[0]] = \
-              computer_portfolio_allocations[current_item][assets_to_vary[0]] - variance_size
-            computer_portfolio_allocations[current_item][assets_to_vary[1]] = \
-              computer_portfolio_allocations[current_item][assets_to_vary[1]] + variance_size
-        else:
-          if computer_portfolio_allocations[current_item][assets_to_vary[1]] - variance_size < 0.0:
-            computer_portfolio_allocations[current_item][assets_to_vary[0]] = \
-              computer_portfolio_allocations[current_item][assets_to_vary[0]] + \
-              computer_portfolio_allocations[current_item][assets_to_vary[1]]
-            computer_portfolio_allocations[current_item][assets_to_vary[1]] = 0.0
-          else:
-            computer_portfolio_allocations[current_item][assets_to_vary[1]] = \
-              computer_portfolio_allocations[current_item][assets_to_vary[1]] - variance_size
-            computer_portfolio_allocations[current_item][assets_to_vary[0]] = \
-              computer_portfolio_allocations[current_item][assets_to_vary[0]] + variance_size
-      else:
-        computer_portfolio_allocations[current_item][assets_to_vary[1]] = \
-          computer_portfolio_allocations[current_item][assets_to_vary[1]] - variance_size
-        computer_portfolio_allocations[current_item][assets_to_vary[0]] = \
-          computer_portfolio_allocations[current_item][assets_to_vary[0]] + variance_size
+  elif user_choice.lower() == 'n' or not user_choice:
+    computer_portfolio_allocations = create_random_portfolios(optimal_fs, long_only_portfolio)
 
 
   os.system('clear')
 
 
-  # clear the current contents out of the 'test_portfolios' table
-  delete_query: str = 'delete from test_portfolios;'
-
-  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
-  
-  db_cursor.execute(delete_query)
-  portfolio_db.commit()
-
-
-  # copy the new portfolios allocations to the 'test_portfolios' table.
-  #  portfolio 0 will be the one with allocations that maximize the growth rate
-  #  portfolios 1+ will either be the ones provided by the user or the ones
-  #   generated by the computer.
-
-  insert_query: str = 'insert into test_portfolios(portfolio, asset, allocation) values (?, ?, ?);'
-  insert_records: List = []
-
-
-  for current_item, current_value in enumerate(optimal_fs):
-    insert_records.append((0, current_item, current_value, ))  
-
-
-  if len(user_portfolio_allocations) > 0:
-    for current_portfolio, current_allocations in enumerate(user_portfolio_allocations):
-      for current_asset, current_value in enumerate(current_allocations):
-        insert_records.append((current_portfolio + 1, current_asset, current_value, ))
-  
+  # import the optimal portfolio and the test portfolios to the 'test_portfolios' table
+  if user_portfolio_allocations:
+    import_test_portfolios(portfolio_db, optimal_fs, user_portfolio_allocations)
   else:
-    for current_portfolio, current_allocations in enumerate(computer_portfolio_allocations):
-      for current_asset, current_value in enumerate(current_allocations):
-        insert_records.append((current_portfolio + 1, current_asset, current_value, ))
-
-
-  db_cursor.executemany(insert_query, insert_records)
-  portfolio_db.commit()
-
-  db_cursor.close()	
+    import_test_portfolios(portfolio_db, optimal_fs, computer_portfolio_allocations)
 
 
   # print the portfolio allocations to the screen
-  if len(user_portfolio_allocations) > 0:
+  number_of_assets: int = optimal_fs.shape[0]
+
+  if user_portfolio_allocations:
     print("First six user-provided portfolios\n")
     for current_portfolio, current_allocations in enumerate(user_portfolio_allocations):
       if current_portfolio < 6:
         output_string: str = f"{current_portfolio + 1:d}"
-      
+
         for current_asset in range(number_of_assets):
           output_string += f"\t{current_allocations[current_asset]:8.6f}"
 
-        print(output_string) 
-        
+        print(output_string)
+
   else:
     print("First six randomly-created portfolios\n")
     for current_portfolio, current_allocations in enumerate(computer_portfolio_allocations):
       if current_portfolio < 6:
         output_string: str = f"{current_portfolio:d}"
-      
+
         for current_asset in range(number_of_assets):
           output_string += f"\t{current_allocations[current_asset]:8.6f}"
 
-        print(output_string) 
-           
+        print(output_string)
 
-  print("\nOptimal portfolio allocations, and some optimization results\n")
+
+  print("\nOptimal portfolio allocations\n")
   print(optimal_fs)
   time.sleep(12)
 
@@ -813,7 +820,7 @@ def get_user_portfolio_allocation_data(portfolio_allocation_filepath: str) -> Di
   else:
     return {'any_errors': True, 'message': "\'number of assets\' not found on first line"}
 
-  
+
   for counter in range(2):
     line_from_file = portfolio_allocation_file.readline()
 
@@ -821,39 +828,41 @@ def get_user_portfolio_allocation_data(portfolio_allocation_filepath: str) -> Di
   raw_portfolio_allocations: List = []
 
   if line_from_file == "portfolio allocations\n":
-    while len(line_from_file) > 0:
+    while line_from_file:
       line_from_file = portfolio_allocation_file.readline()
-      if len(line_from_file) > 0:
+      if line_from_file:
         raw_portfolio_allocations.append(line_from_file)
 
   else:
-    return {'any_errors': True, 'message': "\'portfolio allocations\' not found on fourth line"}  
+    return {'any_errors': True, 'message': "\'portfolio allocations\' not found on fourth line"}
 
 
   portfolio_allocation_file.close()
 
 
   # convert the number of assets to an integer
-  if not is_int(number_of_assets_str): 
-    return {'any_errors': True, 'message': f"number of assets {number_of_assets_str:s} isn\'t an integer"}
+  if not is_int(number_of_assets_str):
+    return {'any_errors': True, 
+            'message': f"number of assets {number_of_assets_str:s} isn\'t an integer"}
 
   number_of_assets: int = int(number_of_assets_str)
 
 
   # check the portfolio allocations
   for current_row in raw_portfolio_allocations:
-    allocation_values: List = re.findall(f'\w+\.*\w*', current_row)    
+    allocation_values: List = re.findall(r'\w+\.*\w*', current_row)
 
     for current_value in allocation_values:
       if not is_float(current_value):
-        return {'any_errors': True, 'message': f"portfolio allocation {current_value:s} isn\'t a floating-point number"}
+        return {'any_errors': True, 
+                'message': f"portfolio allocation {current_value:s} isn\'t a floating-point number"}
 
 
   # copy the portfolio allocations into a list of lists
   portfolio_allocations: List = [list() for x in range(len(raw_portfolio_allocations))]
 
   for current_item1, current_row in enumerate(raw_portfolio_allocations):
-    allocation_values: List = re.findall(f'[-\+]*\w+\.*\w*', current_row) 
+    allocation_values: List = re.findall(r'[-\+]*\w+\.*\w*', current_row)
 
     for current_item2, current_value in enumerate(allocation_values):
       portfolio_allocations[current_item1].append(float(current_value))
@@ -862,10 +871,11 @@ def get_user_portfolio_allocation_data(portfolio_allocation_filepath: str) -> Di
   # check that the allocations in each portfolio add up to 1.0
   for current_portfolio, current_allocations in enumerate(portfolio_allocations):
     total_allocations: float = sum(current_allocations)
-    
+
     if abs(total_allocations - 1.0) > 0.001:
-      return {'any_errors': True, 'message': f"portfolio {current_portfolio:d} allocations add up to {total_allocations:8.6f}"}
-  
+      return {'any_errors': True, 
+              'message': f"portfolio {current_portfolio:d} allocations add up to {total_allocations:8.6f}"}
+
 
   return {'any_errors': False, 'message': '', 'allocations': portfolio_allocations}
 
@@ -876,19 +886,139 @@ def is_int(test_input) -> bool:
   This function will return True if 'test_input' can be converted to an integer
   and False if not.
   
-  Created on June 22, 2022  
+  Created on June 22, 2022
   """
-  
+
   try:
     test_number = int(test_input)
-    return True	  
-	  
+    return True
+
   except:
     return False
 
 
 
-def calculate_optimal_fs(portfolio_db: sqlite3.Connection) -> Dict:
+def create_random_portfolios(optimal_fs: np.ndarray, long_only_portfolio: bool) -> List:
+  """
+  This function will create random portfolios based on the one defined
+   in the 'optimal_fs' numpy array.  It will use different approaches to
+   calculate the random portfolios depending on whether or not the
+   ones in the 'optimal_fs' array are only long positions, as opposed to
+   being a combination of long and short positions.
+
+  It will return a list of numpy arrays, containing the randomly-generated
+   portfolios.
+
+  Created on July 18, 2022
+  """
+
+  number_of_assets: int = optimal_fs.shape[0]
+
+  computer_portfolio_allocations: List = []
+
+  number_of_portfolios: int = 11
+
+  for current_portfolio in range(number_of_portfolios):
+    computer_portfolio_allocations.append(list())
+
+  for current_asset, current_allocation in enumerate(optimal_fs):
+    if current_asset < number_of_assets:
+      for current_portfolio in computer_portfolio_allocations:
+        current_portfolio.append(current_allocation)
+
+
+  # create some random portfolio allocations around the one with the 
+  #  optimal allocations
+  for current_item in range(number_of_portfolios):
+    assets_to_vary: List = random.sample([x for x in range(number_of_assets)], 2)
+    variance_size: float = random.random()
+
+    if long_only_portfolio:
+      if computer_portfolio_allocations[current_item][assets_to_vary[1]] <= \
+         computer_portfolio_allocations[current_item][assets_to_vary[0]]:
+        if computer_portfolio_allocations[current_item][assets_to_vary[0]] - variance_size < 0.0:
+          computer_portfolio_allocations[current_item][assets_to_vary[1]] = \
+            computer_portfolio_allocations[current_item][assets_to_vary[1]] + \
+            computer_portfolio_allocations[current_item][assets_to_vary[0]]
+          computer_portfolio_allocations[current_item][assets_to_vary[0]] = 0.0
+        else:
+          computer_portfolio_allocations[current_item][assets_to_vary[0]] = \
+            computer_portfolio_allocations[current_item][assets_to_vary[0]] - variance_size
+          computer_portfolio_allocations[current_item][assets_to_vary[1]] = \
+            computer_portfolio_allocations[current_item][assets_to_vary[1]] + variance_size
+      else:
+        if computer_portfolio_allocations[current_item][assets_to_vary[1]] - variance_size < 0.0:
+          computer_portfolio_allocations[current_item][assets_to_vary[0]] = \
+            computer_portfolio_allocations[current_item][assets_to_vary[0]] + \
+            computer_portfolio_allocations[current_item][assets_to_vary[1]]
+          computer_portfolio_allocations[current_item][assets_to_vary[1]] = 0.0
+        else:
+          computer_portfolio_allocations[current_item][assets_to_vary[1]] = \
+            computer_portfolio_allocations[current_item][assets_to_vary[1]] - variance_size
+          computer_portfolio_allocations[current_item][assets_to_vary[0]] = \
+            computer_portfolio_allocations[current_item][assets_to_vary[0]] + variance_size
+    else:
+      computer_portfolio_allocations[current_item][assets_to_vary[1]] = \
+        computer_portfolio_allocations[current_item][assets_to_vary[1]] - variance_size
+      computer_portfolio_allocations[current_item][assets_to_vary[0]] = \
+        computer_portfolio_allocations[current_item][assets_to_vary[0]] + variance_size
+
+
+  return computer_portfolio_allocations
+
+
+
+def import_test_portfolios(portfolio_db: sqlite3.Connection, 
+                           optimal_fs: np.ndarray, 
+                           test_portfolio_allocations: List):
+  """
+  This function will the portfolios in the 'optimal_fs' array and the
+   portfolios in the 'test_portfolio' list to the 'test_portfolios' table
+   in the database.
+
+  Created on July 18. 2022
+  """
+
+  # clear the current contents out of the 'test_portfolios' table
+  delete_query: str = 'delete from test_portfolios;'
+
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
+
+  db_cursor.execute(delete_query)
+  portfolio_db.commit()
+
+
+  # copy the new portfolios allocations to the 'test_portfolios' table.
+  #  portfolio 0 will be the one with allocations that maximize the growth rate
+  #  portfolios 1+ will either be the ones provided by the user or the ones
+  #   generated by the computer.
+
+  insert_query: str = 'insert into test_portfolios(portfolio, asset, allocation) values (?, ?, ?);'
+  insert_records: List = []
+
+
+  for current_item, current_value in enumerate(optimal_fs):
+    insert_records.append((0, current_item, current_value, ))
+
+
+  for current_portfolio, current_allocations in enumerate(test_portfolio_allocations):
+    for current_asset, current_value in enumerate(current_allocations):
+      insert_records.append((current_portfolio + 1, current_asset, current_value, ))
+
+
+  db_cursor.executemany(insert_query, insert_records)
+  portfolio_db.commit()
+
+  db_cursor.close()
+
+
+  return
+
+
+
+def calculate_optimal_fs(mean_returns: np.ndarray, 
+                         covariance_matrix: np.ndarray, 
+                         long_only_portfolio: bool) -> Dict:
   """
   This function will calculate the portfolio allocations needed to maximize
    the growth rate of the portfolio's value, under the assumptions that
@@ -898,64 +1028,27 @@ def calculate_optimal_fs(portfolio_db: sqlite3.Connection) -> Dict:
   Depending on the user's input, the portfolio will be constructed 
    assuming long and short positions can be held, or only long positions.
    
-  It will return a dictionary with four keys.  One 'any_errors', will be
-   True if there are any problems and False if not.  The second key,
-   'message', will describe the problem, if there are any, or blank if
-   there aren't any.  The third key, 'optimal_fs', will be blank if there
-   are any problems or will be a numpy array with the optimal fs if there
-   aren't any problems.  The fourth key, 'long_only', will be True if the
-   user selected to create a portfolio composed only of long positions, 
-   or False if the user selected to create a portfolio of long and short
-   positions.
+  It will return a dictionary with three keys.
+  * 'any_errors', will be True if there are any problems and False if not.
+  * 'message', will describe the problem, if there are any, or blank if
+    there aren't any.
+  * 'optimal_fs', will be blank if there are any problems or will be a 
+    numpy array with the optimal fs if there aren't any problems.
 
-  Created on June 20 and 22 and July 3-4, 2022 
+  Created on June 20 and 22, July 3-4, and July 18, 2022 
   """
-  
-  # put the mean return and covariance matrix data into numpy arrays
-  mean_returns: np.ndarray = get_mean_returns(portfolio_db)
-  if mean_returns.shape[0] == 1:
-   return {'any_errors': True, 'message': 'Need to import mean returns.'}
 
-  covariance_matrix: np.ndarray = get_covariance_matrix(portfolio_db)
-  if covariance_matrix.shape[0] == 1:
-   return {'any_errors': True, 'message': 'Need to import covariance matrix.'}
-  
+  # expand the arrays so they can be used to calculate the optimal fs if
+  #  the user doesn't want a portfolio with only long positions.
   number_of_rows: int = covariance_matrix.shape[0]
 
-
-  # expand the arrays so they can be used to calculate the optimal fs
   mean_returns_expanded: np.ndarray = np.vstack([mean_returns, [1]])
 
-  covariance_matrix_addrow: np.ndarray = np.vstack([covariance_matrix, np.ones(number_of_rows, dtype=np.float32)])
-  covariance_matrix_expanded: np.ndarray = np.hstack([covariance_matrix_addrow, np.ones((number_of_rows + 1, 1), dtype=np.float32)])
+  covariance_matrix_addrow: np.ndarray = \
+    np.vstack([covariance_matrix, np.ones(number_of_rows, dtype=np.float32)])
+  covariance_matrix_expanded: np.ndarray = \
+    np.hstack([covariance_matrix_addrow, np.ones((number_of_rows + 1, 1), dtype=np.float32)])
   covariance_matrix_expanded[number_of_rows, number_of_rows] = 0.0
-
-
-  # determine if the user wants the portfolio to be build only with long
-  #  positions, or if both long and short positions are OK
-  user_response: str = ''
-
-  while user_response == '':
-    os.system('clear')
-    
-    print("The portfolio with the highest mean growth rate can be")
-    print(" build using long and short stock/ETF positions, or it")
-    print(" can be build only using long positions.")
-    print("\nDo you want to build the portfolio only using long positions?")
-    user_response = input("\nEnter Yes or Y, or No or N: ")
-
-    if len(user_response) < 1:
-      print("You must enter \'Yes\' or \'Y\' or \'No\' or \'N\'")
-      time.sleep(6)
-      user_response = ''
-    elif user_response.lower() == 'yes' or user_response.lower() == 'y':
-      user_response = 'y'
-    elif user_response.lower() == 'no' or user_response.lower() == 'n':
-      user_response = 'n'
-    else:
-      print("You must enter \'Yes\' or \'Y\' or \'No\' or \'N\'")
-      time.sleep(6)
-      user_response = ''
 
 
 #  print(mean_returns_expanded)
@@ -967,27 +1060,26 @@ def calculate_optimal_fs(portfolio_db: sqlite3.Connection) -> Dict:
   # if the user selects 'No' and if the matrix can be inverted, then you
   #  can just multiply some matrices.  otherwise, you need to try 
   #  quadratic programming.
-  if user_response == 'n':
+  if not long_only_portfolio:
     if np.linalg.det(covariance_matrix_expanded) > 0:
-      optimal_fs: np.ndarray = np.matmul(np.linalg.inv(covariance_matrix_expanded), mean_returns_expanded)
-      return {'any_errors': False, 'optimal_fs': optimal_fs[:number_of_rows].flatten(), 'long_only': False}  
-    else:
-      constraint_A: np.ndarray = np.ones((2, number_of_rows))
-      for current_column in range(number_of_rows):
-        constraint_A[1, current_column] = -1.0
+      optimal_fs: np.ndarray = \
+        np.matmul(np.linalg.inv(covariance_matrix_expanded), mean_returns_expanded)
+      return {'any_errors': False, 'optimal_fs': optimal_fs[:number_of_rows].flatten()}
 
+    constraint_A: np.ndarray = np.ones((2, number_of_rows))
+    for current_column in range(number_of_rows):
+      constraint_A[1, current_column] = -1.0
 
-      constraint_b: np.ndarray = np.array([1.0, -1.0]) 
+    constraint_b: np.ndarray = np.array([1.0, -1.0])
 
+    try:
+      results = quadprog.solve_qp(G=covariance_matrix, a=mean_returns.flatten(),
+                                  C=constraint_A.T, b=constraint_b)
 
-      try:
-        results = quadprog.solve_qp(G=covariance_matrix, a=mean_returns.flatten(),
-                                    C=constraint_A.T, b=constraint_b)
-
-
-        return {'any_errors': False, 'optimal_fs': results[0], 'long_only': False} 
-      except:
-        return {'any_errors': True, 'message': 'Quadratic programming function couldn\'t find answer.  Can\'t calculate portfolio allocations.'}   
+      return {'any_errors': False, 'optimal_fs': results[0]}
+    except:
+      return {'any_errors': True, 
+              'message': 'Quadratic programming function couldn\'t find answer.  Can\'t calculate portfolio allocations.'}
   else:
     constraint_A: np.ndarray = np.zeros((2 * number_of_rows + 1, number_of_rows))
     constraint_b: np.ndarray = np.zeros(2 * number_of_rows + 1)
@@ -1004,18 +1096,18 @@ def calculate_optimal_fs(portfolio_db: sqlite3.Connection) -> Dict:
     for current_row in range(number_of_rows + 1, 2 * number_of_rows + 1):
       constraint_A[current_row, current_row - number_of_rows - 1] = 1.0
 
-
     try:
       results = quadprog.solve_qp(G=covariance_matrix, a=mean_returns.flatten(),
                                   C=constraint_A.T, b=constraint_b, meq=1)
 
-      return {'any_errors': False, 'optimal_fs': results[0], 'long_only': True} 
+      return {'any_errors': False, 'optimal_fs': results[0]}
     except:
-      return {'any_errors': True, 'message': 'Quadratic programming function couldn\'t find answer.  Can\'t calculate portfolio allocations.'}   
+      return {'any_errors': True, 
+              'message': 'Quadratic programming function couldn\'t find answer.  Can\'t calculate portfolio allocations.'}
 
 
 
-def get_portfolio_allocations(portfolio_db: sqlite3.Connection) -> np.ndarray:  
+def get_portfolio_allocations(portfolio_db: sqlite3.Connection) -> np.ndarray:
   """
   This function will query the 'test_portfolios' table in the 'portfolio_db'
    database for its contents and then put them into a numpy array, which will
@@ -1025,11 +1117,11 @@ def get_portfolio_allocations(portfolio_db: sqlite3.Connection) -> np.ndarray:
    allocations to an asset.
   
   Created on June 20, 22-23, 2022
-  """  
+  """
 
   # first, get the number of portfolios and assets in the 'test_portfolios'
   #  table, in order to set up the numpy array
-  db_cursor: sqlite3.Cursor = portfolio_db.cursor()  
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
 
   count_query: str = 'select max(portfolio), max(asset) from test_portfolios;'
 
@@ -1042,8 +1134,9 @@ def get_portfolio_allocations(portfolio_db: sqlite3.Connection) -> np.ndarray:
   if return_records is not None:
     # portfolio 0 has the optimal allocations.
     number_of_assets = return_records[1]
-    
-    test_portfolios: np.ndarray = np.zeros((return_records[0] + 1, return_records[1] + 1), dtype=np.float32)
+
+    test_portfolios: np.ndarray = \
+      np.zeros((return_records[0] + 1, return_records[1] + 1), dtype=np.float32)
 
 #    print(test_portfolios.shape)
 
@@ -1062,12 +1155,53 @@ def get_portfolio_allocations(portfolio_db: sqlite3.Connection) -> np.ndarray:
   if return_records is not None:
     for current_record in return_records:
       if current_record[1] <= number_of_assets:
-        test_portfolios[current_record[0], current_record[1]] = current_record[2] 
-  
-  
+        test_portfolios[current_record[0], current_record[1]] = current_record[2]
+
+
   db_cursor.close()
 
   return test_portfolios
+
+
+
+def get_type_portfolio_positions() -> str:
+  """
+  This function will ask the user if they want to build the optimal
+   portfolio only using long positions in assets or using both short
+   and long positions.
+
+  The function will return a 'y' if the user wants the portfolio built
+   only using long positions or 'n' if the user wants the portfolio to 
+   be built with both long and short positions.
+
+  Created on July 20, 2022
+  """
+
+  user_response: str = ''
+
+  while not user_response:
+    os.system('clear')
+
+    print("The portfolio with the highest mean growth rate can be")
+    print(" build using long and short stock/ETF positions, or it")
+    print(" can be build only using long positions.")
+    print("\nDo you want to build the portfolio only using long positions?")
+    user_response = input("\nEnter Yes or Y, or No or N: ")
+
+    if not user_response:
+      print("You must enter \'Yes\' or \'Y\' or \'No\' or \'N\'")
+      time.sleep(6)
+      user_response = ''
+    elif user_response.lower() == 'yes' or user_response.lower() == 'y':
+      user_response = 'y'
+    elif user_response.lower() == 'no' or user_response.lower() == 'n':
+      user_response = 'n'
+    else:
+      print("You must enter \'Yes\' or \'Y\' or \'No\' or \'N\'")
+      time.sleep(6)
+      user_response = ''
+
+  return user_response
 
 
 
@@ -1089,31 +1223,28 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
    Criterion to allocate wealth to risky venture usually allocate some
    percent of the optimal f's to the risky assets.
   
-  Created on June 6-13 and 20-23, 2022  
+  Created on June 6-13 and 20-23, 2022
   """
 
   os.system('clear')
 
-  
-  # simulation parameters and other information
-  asset_returns_filepath: str = get_filepath('asset_returns', portfolio_db)
-  user_portfolio_filepath: str = get_filepath('user_portfolios', portfolio_db)
 
+  # simulation parameters and other information
   mean_returns: np.ndarray = get_mean_returns(portfolio_db)
   if mean_returns.shape[0] == 1:
     print("Need to import mean returns.")
     time.sleep(6)
     return
-  else:
-    mean_returns = mean_returns.flatten()
-  
+
+  mean_returns = mean_returns.flatten()
+
   covariance_matrix: np.ndarray = get_covariance_matrix(portfolio_db)
   if covariance_matrix.shape[0] == 1:
     print("Need to import covariance matrix.")
     time.sleep(6)
     return
 
-  function_return: typing.Dict = is_matrix_pos_semidef(covariance_matrix)
+  function_return: Dict = is_matrix_pos_semidef(covariance_matrix)
   if not function_return['pass_test']:
     print("The covariance matrix needs to be positive semi-definite to run the simulations.")
     print(f"{function_return['message']:s}")
@@ -1127,8 +1258,8 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
   if test_portfolios.shape[0] == 1:
     print("Need to calculate the portfolio allocations.")
     time.sleep(6)
-    return  
-  
+    return
+
   number_of_portfolios: int = test_portfolios.shape[0]
 
   number_of_periods: int = 600
@@ -1147,20 +1278,23 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
   value_assets: np.ndarray = np.zeros((number_of_portfolios, number_of_assets), dtype=np.float32)
   units_assets: np.ndarray = np.ones((number_of_portfolios, number_of_assets), dtype=np.float32)
 
-  portfolio_values: np.ndarray = np.zeros((number_of_portfolios, number_of_sample_periods, number_of_runs), dtype=np.float32)
-  geometric_mean_returns: np.ndarray = np.zeros((number_of_portfolios, number_of_runs), dtype=np.float32)
+  portfolio_values: np.ndarray = \
+    np.zeros((number_of_portfolios, number_of_sample_periods, number_of_runs), dtype=np.float32)
+  geometric_mean_returns: np.ndarray = \
+    np.zeros((number_of_portfolios, number_of_runs), dtype=np.float32)
 
   portfolio_drawdown_factors: np.ndarray = np.array([0.5, 0.25, 0.10, 0.01])
-  portfolio_drawdown_levels: np.ndarray = np.ones((portfolio_drawdown_factors.shape[0]), dtype=np.float32)
+  portfolio_drawdown_levels: np.ndarray = \
+    np.ones((portfolio_drawdown_factors.shape[0]), dtype=np.float32)
   portfolio_drawdown_levels = np.multiply(portfolio_drawdown_factors, starting_portfolio_value)
 
-  portfolio_drawdown_hits: np.ndarray = np.zeros((number_of_portfolios, portfolio_drawdown_factors.shape[0], number_of_runs), dtype=np.int64)
-  portfolio_drawdown_probabilities: np.ndarray = np.zeros((number_of_portfolios, portfolio_drawdown_factors.shape[0]), dtype=np.float32)
+  portfolio_drawdown_hits: np.ndarray = \
+    np.zeros((number_of_portfolios, portfolio_drawdown_factors.shape[0], number_of_runs), dtype=np.int64)
+  portfolio_drawdown_probabilities: np.ndarray = \
+    np.zeros((number_of_portfolios, portfolio_drawdown_factors.shape[0]), dtype=np.float32)
 
 
   # the simulation
-  results_filename: str = get_current_statistics_filename()
-  results_file: IO = open(results_filename, 'w')
   progress_bar = tqdm.tqdm(total=number_of_runs)
 
   for current_run in range(number_of_runs):
@@ -1178,7 +1312,7 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
       # rebalance the portfolios
       units_assets = np.multiply(test_portfolios, current_portfolio_value)
       units_assets = np.divide(units_assets, price_assets)
-    
+
       # calculate the new portfolio values
       return_assets: np.ndarray = np.random.multivariate_normal(mean_returns, covariance_matrix, 1)
       return_assets = np.add(return_assets, 1.0)
@@ -1187,10 +1321,12 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
       value_assets = np.multiply(units_assets, price_assets)
 
       current_portfolio_value[...,0] = np.sum(value_assets, axis=1)
-      current_portfolio_value = np.fmax(np.zeros((number_of_portfolios, 1)), current_portfolio_value)
+      current_portfolio_value = \
+        np.fmax(np.zeros((number_of_portfolios, 1)), current_portfolio_value)
 
       if current_period % length_of_sample_period == 0:
-        portfolio_values[...,current_sample_period,current_run] = np.sum(current_portfolio_value, axis=1)
+        portfolio_values[...,current_sample_period,current_run] = \
+          np.sum(current_portfolio_value, axis=1)
         current_sample_period += 1
 
 # use to test the portfolio value calculation code
@@ -1202,17 +1338,20 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
 
 
     # check if the portfolio values hit the drawdown levels
-    # is there a way to do this with numpy functions instead of loop?
+    # is there a way to do this with numpy where functions instead of loop?
     for current_portfolio in range(number_of_portfolios):
       for current_index, current_level in enumerate(portfolio_drawdown_levels):
         if current_portfolio_value[current_portfolio, 0] <= current_level:
           portfolio_drawdown_hits[current_portfolio, current_index, current_run] = 1
-      
+
 
     # record the geometric mean returns of the current run of the simulation
-    geometric_mean_returns[...,current_run] = np.sum(current_portfolio_value, axis=1) / starting_portfolio_value
-    geometric_mean_returns[...,current_run] = np.power(geometric_mean_returns[...,current_run], 1.0 / number_of_periods)
-    geometric_mean_returns[...,current_run] = np.subtract(geometric_mean_returns[...,current_run], np.ones(number_of_portfolios))
+    geometric_mean_returns[...,current_run] = \
+      np.sum(current_portfolio_value, axis=1) / starting_portfolio_value
+    geometric_mean_returns[...,current_run] = \
+      np.power(geometric_mean_returns[...,current_run], 1.0 / number_of_periods)
+    geometric_mean_returns[...,current_run] = \
+      np.subtract(geometric_mean_returns[...,current_run], np.ones(number_of_portfolios))
 
     progress_bar.update(1)
 
@@ -1221,10 +1360,14 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
 
 
   portfolio_drawdown_probabilities = np.sum(portfolio_drawdown_hits, axis=2)
-  portfolio_drawdown_probabilities = np.divide(portfolio_drawdown_probabilities, float(number_of_runs))
+  portfolio_drawdown_probabilities = \
+    np.divide(portfolio_drawdown_probabilities, float(number_of_runs))
 
 
   # calculate the statistics of the simulation and print them to the output file
+  asset_returns_filepath: str = get_filepath('asset_returns', portfolio_db)
+  user_portfolio_filepath: str = get_filepath('user_portfolios', portfolio_db)
+
   print_simulation_results(asset_returns_filepath, user_portfolio_filepath,
                            geometric_mean_returns, portfolio_values, 
                            {'number_of_runs': number_of_runs, 'number_of_periods': number_of_periods,
@@ -1234,31 +1377,33 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
                            {'asset_mean_returns': mean_returns,
                             'asset_covariance_matrix': covariance_matrix},
                            portfolio_drawdown_levels, portfolio_drawdown_probabilities,
-                           test_portfolios, results_file)
-
-
-  results_file.close()
+                           test_portfolios)
 
   return
 
 
 
-def print_simulation_results(asset_returns_filepath: str,
-                             user_portfolio_filepath: str, 
+def print_simulation_results(asset_returns_filepath: str, 
+                             user_portfolio_filepath: str,
                              geometric_mean_returns: np.ndarray, 
                              portfolio_values: np.ndarray, 
                              simulation_parameters: Dict,
                              asset_return_parameters: Dict,
                              portfolio_drawdown_levels: np.ndarray,
                              portfolio_drawdown_probabilities: np.ndarray,
-                             test_portfolios: np.ndarray,
-                             results_file: IO):
+                             test_portfolios: np.ndarray):
   """
   This function will print the statistics on the geometric mean returns and on
    the percentiles of portfolio values.
 
-  Created on June 6 and 20, July 10-13, 2022
+  Created on June 6 and 20, July 10-13, July 20, 2022
   """
+
+  # open the file that will hold the statistics.
+  results_filename: str = get_current_statistics_filename()
+  results_file: IO = open(results_filename, 'w')
+
+
   # calculate the statistics of the geometric mean returns and portfolio values
   returns_statistics: np.ndarray = stats.describe(geometric_mean_returns, axis=1)
   portfolio_values_1_percentiles: np.ndarray = np.percentile(portfolio_values, q=1.0, axis=2)
@@ -1271,7 +1416,7 @@ def print_simulation_results(asset_returns_filepath: str,
   if user_portfolio_filepath != 'not found':
     results_file.write(f"Path to file with user-provided portfolio allocations: {user_portfolio_filepath:s}\n")
 
-  
+
   # print information on the simulation parameters
   results_file.write(f"\nNumber of simulation runs: {simulation_parameters['number_of_runs']:d}\n")
   results_file.write(f"Number of periods per run: {simulation_parameters['number_of_periods']:d}\n")
@@ -1292,7 +1437,7 @@ def print_simulation_results(asset_returns_filepath: str,
 
     for asset_2, current_variance in enumerate(current_variance_vector):
       results_file.write(f"\t{current_variance:8.6f}")
-      
+
 
   # print statistics on the geometric mean returns
   results_file.write("\n\nStatistics on Geometric Mean Growth Rates")
@@ -1309,7 +1454,7 @@ def print_simulation_results(asset_returns_filepath: str,
   results_file.write("\nNumber of Samples")
   for current_item in test_portfolios:
     results_file.write(f"\t{returns_statistics[0]:d}")
- 
+
   results_file.write("\nSample Means")
   for current_item in returns_statistics[2]:
     results_file.write(f"\t{100.0 * current_item:6.4f}%")
@@ -1345,7 +1490,8 @@ def print_simulation_results(asset_returns_filepath: str,
   for current_item in test_portfolios:
     results_file.write(f"\t{simulation_parameters['starting_portfolio_value']:,.0f}")
 
-  measurement_periods: List = [x for x in range(0, simulation_parameters['number_of_periods'] + 1, simulation_parameters['length_of_sample_period'])]
+  measurement_periods: List = \
+    [x for x in range(0, simulation_parameters['number_of_periods'] + 1, simulation_parameters['length_of_sample_period'])]
 
   for current_period in range(1, 11):
     results_file.write(f"\n{measurement_periods[current_period]:d}")
@@ -1362,7 +1508,8 @@ def print_simulation_results(asset_returns_filepath: str,
   for current_item in test_portfolios:
     results_file.write(f"\t{simulation_parameters['starting_portfolio_value']:,.0f}")
 
-  measurement_periods: List = [x for x in range(0, simulation_parameters['number_of_periods'] + 1, simulation_parameters['length_of_sample_period'])]
+  measurement_periods: List = \
+    [x for x in range(0, simulation_parameters['number_of_periods'] + 1, simulation_parameters['length_of_sample_period'])]
 
   for current_period in range(1, 11):
     results_file.write(f"\n{measurement_periods[current_period]:d}")
@@ -1394,7 +1541,8 @@ def print_simulation_results(asset_returns_filepath: str,
   for current_item in test_portfolios:
     results_file.write(f"\t{simulation_parameters['starting_portfolio_value']:,.0f}")
 
-  measurement_periods: List = [x for x in range(0, simulation_parameters['number_of_periods'] + 1, simulation_parameters['length_of_sample_period'])]
+  measurement_periods: List = \
+    [x for x in range(0, simulation_parameters['number_of_periods'] + 1, simulation_parameters['length_of_sample_period'])]
 
   for current_period in range(1, 11):
     results_file.write(f"\n{measurement_periods[current_period]:d}")
@@ -1407,15 +1555,17 @@ def print_simulation_results(asset_returns_filepath: str,
   results_file.write("\n-------------------------------------")
 
   results_file.write("\nPortfolio Value")
-  
+
   for current_index, current_level in enumerate(portfolio_drawdown_levels):
     results_file.write(f"\n{current_level:,.0f}")
     for current_item in portfolio_drawdown_probabilities[...,current_index]:
       results_file.write(f"\t{100.0 * current_item:4.2f}%")
-    
 
 
 
+
+
+  results_file.close()
 
   return
 
@@ -1446,13 +1596,13 @@ def print_test_results(test_portfolios: np.ndarray,
   results_file.write("Prices of the assets\n")
   for asset, current_price in enumerate(price_assets):
     results_file.write(f"{asset:d}:\t{str(current_price):s}\n")
-  
-  
+
+
   results_file.write("Values of the assets\n")
   for portfolio, current_values in enumerate(value_assets):
     results_file.write(f"{portfolio:d}:\t{str(current_values):s}\n")
-  
-  
+
+
   results_file.write("Current portfolio value\n")
   for portfolio, current_values in enumerate(current_portfolio_value):
     results_file.write(f"{portfolio:d}:\t{str(current_values):s}\n")
@@ -1480,20 +1630,21 @@ def get_filename(message_to_user: str) -> Dict:
 
   # first, get the directory in which the file can be found and check
   #  that it exists
-  user_provided_dir: str = '-'
+  user_provided_dir: str = ''
 
-  while user_provided_dir != '':
+  while not user_provided_dir:
     os.system('clear')
 
     print(message_to_user)
-    
+
     print("\nPlease enter the location of the directory")
     user_provided_dir = input(" with the file or press Enter to quit: ")
 
-    if len(user_provided_dir) < 1:
+    if not user_provided_dir:
       return {'any_errors': True, 'message': 'User quit function'}
     elif not os.path.isdir(user_provided_dir):
       print("\nThat directory can\'t be found.\n Try again, or press Enter to quit.")
+      user_provided_dir = ''
       time.sleep(6)
     else:
       break
@@ -1504,17 +1655,18 @@ def get_filename(message_to_user: str) -> Dict:
 
 
   # next get the file's name, and check that it exists and can be opened
-  user_provided_file: str = '-'
+  user_provided_file: str = ''
 
-  while user_provided_file != '':
+  while not user_provided_file:
     os.system('clear')
-    
+
     user_provided_file = input("Please enter the name of the file, or press Enter to quit: ")
 
-    if len(user_provided_file) < 1:
+    if not user_provided_file:
       return {'any_errors': True, 'message': 'User quit function'}
     elif not os.path.exists(user_provided_dir + user_provided_file):
       print("\nThat file can\'t be found.\n Try again, or press Enter to quit.")
+      user_provided_file = ''
       time.sleep(6)
     else:
       break
@@ -1541,13 +1693,13 @@ def import_filepath(table_key: str, table_value: str, portfolio_db: sqlite3.Conn
 
   portfolio_db.commit()
 
-  db_cursor.close()	
+  db_cursor.close()
 
   return
 
 
 
-def get_filepath(table_key: str, portfolio_db: sqlite3.Connection) -> str:  
+def get_filepath(table_key: str, portfolio_db: sqlite3.Connection) -> str:
   """
   This function will query the 'filepaths' table in the 'portfolio_db'
    database for the file path matching the key 'table_key'.  It will
@@ -1555,11 +1707,11 @@ def get_filepath(table_key: str, portfolio_db: sqlite3.Connection) -> str:
    exist.
   
   Created on July 10, 2022
-  """  
+  """
 
   return_value: str = ''
 
-  db_cursor: sqlite3.Cursor = portfolio_db.cursor()  
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
 
   select_query: str = 'select filepath from filepaths where description = ?;'
 
@@ -1573,7 +1725,7 @@ def get_filepath(table_key: str, portfolio_db: sqlite3.Connection) -> str:
   else:
     return_value = return_records[0]
 
-  
+
   db_cursor.close()
 
   return return_value
@@ -1595,7 +1747,7 @@ def get_current_statistics_filename() -> str:
 
   Created on July 16, 2022
   """
-  
+
   highest_number: int = 0
 
 
@@ -1624,4 +1776,3 @@ def get_current_statistics_filename() -> str:
 
 if __name__ == "__main__":
   main()
-
