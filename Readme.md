@@ -64,7 +64,7 @@ and you need to make sure that these modules are installed:
 The script uses other modules, but these come with a standard Python 3.x
 installation.  I installed all of these using pip, so I know that method works.
 
-Third, the scripts will look for a file with the asset return statistics.
+Third, the script can read data from a file with the asset return statistics.
 It has to have a specific format:
 
 * the first line must have 'mean returns' on it
@@ -75,8 +75,17 @@ It has to have a specific format:
   the matrix per line, with the variances and covariances separated by
   spaces or tabs.
 
+Fourth, the script can instead read data from a file with the asset prices,
+and then it will calculate the mean returns and covariances of the returns.  
+This file has to have a specific format:
+
+* the prices in each period need to be on one row and separated by tabs
+* the prices on one row are assumed to come from the period (day, week, or
+  any other interval of time) immediately after the period from which the
+  prices on the row above it in the file came.
+
 When you run the script, you'll be shown a menu with four choices.  Enter
-a number from 1 to 4 to select one of the choices, or just hit the Enter
+a number from 1 to 5 to select one of the choices, or just hit the Enter
 key to exit.  Each choice takes you to a new screen, asks you for
 information and/or shows you something, and then brings you back to this
 main menu.
@@ -86,13 +95,20 @@ asset mean returns and a covariance matrix is located.  If it can find the
 directory and file, then the script will read the contents of the file
 into an internal database.
 
-Choice **2** displays the mean returns and the covariance matrix.  This
+Choice **2** will ask you to enter the directory in which the file with
+asset prices is located.  If it can find the directory and file, then the
+script will read the contents of the file, calculate period-over-period
+returns using the prices, then calculate means and covariances of the
+returns, and finally store those returns, means, and covariances into an
+internal database.
+
+Choice **3** displays the mean returns and the covariance matrix.  This
 gives you a way to validate the data that the script is using to calculate
 the portfolio allocations and to run the portfolio value simulations.  If
 you haven't yet run Choice 1, it will prompt you to run it.  After six
 seconds, you will be taken back to the main menu.
 
-Choice **3** will do several things.
+Choice **4** will do several things.
 
 * First, it will ask you if you want to construct a set of portfolio
 allocations using the Kelly Criterion that require all allocations to be
@@ -131,7 +147,7 @@ specific format:
   assets' allocations are split up into columns by putting spaces between
   each number.
 
-Choice **4** runs some simulations.  It uses the mean returns and
+Choice **5** runs some simulations.  It uses the mean returns and
 covariance matrix to generate random asset returns, using a multivariate
 normal distribution.  It will use the returns to simulate values of the
 portfolios from Choice 3 600 periods into the future.  In each period, 

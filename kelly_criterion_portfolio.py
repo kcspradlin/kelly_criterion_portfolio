@@ -116,7 +116,7 @@ def set_up_portfolio_db(portfolio_db: sqlite3.Connection):
    optimal allocations of funds to the assets in the portfolio. 
   If they already exist, then they will first be deleted.
 
-  Created on June 20-22 and July 10, 2022
+  Created on June 20-22, July 10, and July 25 2022
   """
 
   db_cursor: sqlite3.Cursor = portfolio_db.cursor()
@@ -130,7 +130,8 @@ def set_up_portfolio_db(portfolio_db: sqlite3.Connection):
     {'mean_returns': "create table mean_returns(asset integer, mean_return real, primary key(asset));",
      'return_covariance_matrix': "create table return_covariance_matrix(asset1 integer, asset2 integer, var_covar real, primary key(asset1, asset2));",
      'filepaths': "create table filepaths(description text, filepath text, primary key(description));",
-     'test_portfolios': "create table test_portfolios(portfolio integer, asset integer, allocation real, primary key(portfolio, asset));"}
+     'test_portfolios': "create table test_portfolios(portfolio integer, asset integer, allocation real, primary key(portfolio, asset));",
+     'asset_returns': "create table asset_returns(time_period integer, asset integer, return real, primary key(asset, time_period));"}
 
   table_names: Set = set(create_queries.keys())
 
@@ -160,9 +161,10 @@ def set_up_console_menu() -> Dict:
 
   console_menu: Dict = {}
   console_menu['1'] = ('Import asset return data into internal db', 'import_return_data', )
-  console_menu['2'] = ('Display imported asset return data', 'show_return_data', )
-  console_menu['3'] = ('Calculate portfolio allocations', 'calculate_portfolio_allocations', )
-  console_menu['4'] = ('Estimate portfolio statistics', 'simulate_portfolio_values', )
+  console_menu['2'] = ('Calculate asset returns using price data', 'import_price_data', )
+  console_menu['3'] = ('Display imported asset return data', 'show_return_data', )
+  console_menu['4'] = ('Calculate portfolio allocations', 'calculate_portfolio_allocations', )
+  console_menu['5'] = ('Estimate portfolio statistics', 'simulate_portfolio_values', )
 
   return console_menu
 
@@ -189,7 +191,7 @@ def import_return_data(portfolio_db: sqlite3.Connection):
   asset_return_filepath: str = function_results['filepath']
 
 
-  # clear out the 'returns' table in the database.
+  # clear out the database.
   set_up_portfolio_db(portfolio_db)
 
 
@@ -464,7 +466,7 @@ def is_float(test_input) -> bool:
   
   Created on June 19, 2022
   """
-  
+
   try:
     test_number = float(test_input)
     return True
@@ -504,7 +506,7 @@ def is_matrix_pos_semidef(test_matrix: np.array) -> Dict:
     message = 'Matrix needs to have 2 dimensions'
     return {'pass_test': pass_test, 'message': message}
 
-  elif matrix_dimensions[0] != matrix_dimensions[1]:
+  if matrix_dimensions[0] != matrix_dimensions[1]:
     message = 'Matrix needs to be square'
     return {'pass_test': pass_test, 'message': message}
 
@@ -600,6 +602,9 @@ def get_mean_returns(portfolio_db: sqlite3.Connection) -> np.ndarray:
 
   if return_records is not None:
     for current_record in return_records:
+#      print(current_record[0])
+#      print(current_record[1])
+#      time.sleep(9)
       mean_returns[current_record[0] - 1, 0] = current_record[1]
 
 
@@ -638,7 +643,8 @@ def get_covariance_matrix(portfolio_db: sqlite3.Connection) -> np.ndarray:
 
 
   # now, get the covariances and then copy them into the numpy array
-  select_query: str = 'select asset1, asset2, var_covar from return_covariance_matrix order by asset1, asset2;'
+  select_query: str = \
+    'select asset1, asset2, var_covar from return_covariance_matrix order by asset1, asset2;'
 
   db_cursor.execute(select_query)
 
@@ -669,7 +675,7 @@ def calculate_portfolio_allocations(portfolio_db: sqlite3.Connection):
   Regardless of the choice taken, the function will save these portfolios'
    allocations to the 'test_portfolios' table in the database.
   
-  Created on June 20-22, and July 4, 10, and 20, 2022  
+  Created on June 20-22, and July 4, 10, and 20, 2022
   """
 
   # first, calculate the portfolio allocations that maximize the growth rate
@@ -807,7 +813,7 @@ def get_user_portfolio_allocation_data(portfolio_allocation_filepath: str) -> Di
   is a problem.  The third key, 'allocations', will be blank of there are any problems
   or the portfolio allocation list if there aren't any problems.
   
-  Created on June 22-23 and July 10, 2022 
+  Created on June 22-23 and July 10, 2022
   """
 
   portfolio_allocation_file: IO = open(portfolio_allocation_filepath, 'r')
@@ -845,8 +851,6 @@ def get_user_portfolio_allocation_data(portfolio_allocation_filepath: str) -> Di
     return {'any_errors': True, 
             'message': f"number of assets {number_of_assets_str:s} isn\'t an integer"}
 
-  number_of_assets: int = int(number_of_assets_str)
-
 
   # check the portfolio allocations
   for current_row in raw_portfolio_allocations:
@@ -864,7 +868,7 @@ def get_user_portfolio_allocation_data(portfolio_allocation_filepath: str) -> Di
   for current_item1, current_row in enumerate(raw_portfolio_allocations):
     allocation_values: List = re.findall(r'[-\+]*\w+\.*\w*', current_row)
 
-    for current_item2, current_value in enumerate(allocation_values):
+    for current_value in allocation_values:
       portfolio_allocations[current_item1].append(float(current_value))
 
 
@@ -1035,32 +1039,30 @@ def calculate_optimal_fs(mean_returns: np.ndarray,
   * 'optimal_fs', will be blank if there are any problems or will be a 
     numpy array with the optimal fs if there aren't any problems.
 
-  Created on June 20 and 22, July 3-4, and July 18, 2022 
+  Created on June 20 and 22, July 3-4, and July 18, 2022
   """
-
-  # expand the arrays so they can be used to calculate the optimal fs if
-  #  the user doesn't want a portfolio with only long positions.
-  number_of_rows: int = covariance_matrix.shape[0]
-
-  mean_returns_expanded: np.ndarray = np.vstack([mean_returns, [1]])
-
-  covariance_matrix_addrow: np.ndarray = \
-    np.vstack([covariance_matrix, np.ones(number_of_rows, dtype=np.float32)])
-  covariance_matrix_expanded: np.ndarray = \
-    np.hstack([covariance_matrix_addrow, np.ones((number_of_rows + 1, 1), dtype=np.float32)])
-  covariance_matrix_expanded[number_of_rows, number_of_rows] = 0.0
-
-
-#  print(mean_returns_expanded)
-#  print(covariance_matrix_expanded)
-#  time.sleep(6)
-
 
   # calculate the optimal fs
   # if the user selects 'No' and if the matrix can be inverted, then you
   #  can just multiply some matrices.  otherwise, you need to try 
   #  quadratic programming.
   if not long_only_portfolio:
+    # expand the arrays so they can be used to calculate the optimal fs if
+    #  the user doesn't want a portfolio with only long positions.
+    number_of_rows: int = covariance_matrix.shape[0]
+
+    mean_returns_expanded: np.ndarray = np.vstack([mean_returns, [1]])
+
+    covariance_matrix_addrow: np.ndarray = \
+      np.vstack([covariance_matrix, np.ones(number_of_rows, dtype=np.float32)])
+    covariance_matrix_expanded: np.ndarray = \
+      np.hstack([covariance_matrix_addrow, np.ones((number_of_rows + 1, 1), dtype=np.float32)])
+    covariance_matrix_expanded[number_of_rows, number_of_rows] = 0.0
+
+#    print(mean_returns_expanded)
+#    print(covariance_matrix_expanded)
+#    time.sleep(6)
+
     if np.linalg.det(covariance_matrix_expanded) > 0:
       optimal_fs: np.ndarray = \
         np.matmul(np.linalg.inv(covariance_matrix_expanded), mean_returns_expanded)
@@ -1370,7 +1372,8 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
 
   print_simulation_results(asset_returns_filepath, user_portfolio_filepath,
                            geometric_mean_returns, portfolio_values, 
-                           {'number_of_runs': number_of_runs, 'number_of_periods': number_of_periods,
+                           {'number_of_runs': number_of_runs, 
+                            'number_of_periods': number_of_periods,
                             'number_of_portfolios': number_of_portfolios,
                             'length_of_sample_period': length_of_sample_period,
                             'starting_portfolio_value': starting_portfolio_value},
@@ -1435,7 +1438,7 @@ def print_simulation_results(asset_returns_filepath: str,
   for asset_1, current_variance_vector in enumerate(asset_return_parameters['asset_covariance_matrix']):
     results_file.write(f"\n{asset_1:d}")
 
-    for asset_2, current_variance in enumerate(current_variance_vector):
+    for current_variance in current_variance_vector:
       results_file.write(f"\t{current_variance:8.6f}")
 
 
@@ -1771,6 +1774,246 @@ def get_current_statistics_filename() -> str:
     return f"multi-asset_simulation_statistics_v{highest_number + 1:d}"
   else:
     return "multi-asset_simulation_statistics_v1"
+
+
+
+def import_price_data(portfolio_db: sqlite3.Connection):
+  """
+  This function will ask the user for the directory and name of the file containing 
+   the asset prices, will open the file, and run a couple of checks on the data.  If
+   the data's OK, the function will calculate asset returns using the price data, and
+   will calculate means and a covariance matrix of those returns, and finally import
+   the data into the 'portfolio_db' database.
+
+  Created on July 25-xxx, 2022
+  """
+
+  # get the file path of the file with the asset return data
+  function_results = get_filename('Looking for the file with asset price histories')
+  if function_results['any_errors']:
+    print(function_results['message'])
+    time.sleep(6)
+    return
+
+
+  asset_price_filepath: str = function_results['filepath']
+
+
+  # clear out the database.
+  set_up_portfolio_db(portfolio_db)
+
+
+  # open the file.  check that it has the expected format, if it has the
+  # format, then import its data and run some checks on it.  if the 
+  # data's good, then store it in the database.
+  parse_function_results: Dict = get_asset_price_data(asset_price_filepath)
+  if parse_function_results['any_errors']:
+    print(f"{parse_function_results['message']:s}")
+    time.sleep(6)
+    return
+
+
+  # since there aren't any problems with the price return data, save it
+  #  to the database, along with the name of the price data file.
+  import_asset_returns(parse_function_results['asset_return_data'], portfolio_db)
+  import_filepath('asset_prices', asset_price_filepath, portfolio_db)
+
+
+  # now calculate the means and covariances of the asset returns, and then
+  # save them to the database
+  import_function_results: Dict = \
+    import_mean_covariance_matrices(parse_function_results['asset_return_data'], portfolio_db)
+  if import_function_results['any_errors']:
+    print(f"{import_function_results['message']:s}")
+    time.sleep(6)
+
+
+  return
+
+
+
+def get_asset_price_data(asset_price_filepath: str) -> Dict:
+  """
+  This function will open the file using the 'asset_price_filepath' parameter and
+  parse the data in the file.  if it has the expected format and if the data passes
+  some checks, then the function will calculate period-over-period returns and save
+  those returns to the 'asset_returns' table in the 'portfolio_db' database.  It will
+  also save the file and directory in the 'filepaths' table.
+  
+  The function will:
+  * verify that the numbers in the file are floating-point numbers
+  * will set a return to zero if the denominator is zero.
+  
+  It will return a dictionary with three keys:
+  * 'any_errors', will be False if there are any problems or True if there are any
+  * 'message', will be blank if there aren't any problems or will be a description
+     of the problem if there is one
+  * 'asset_return_data' will be a 2-dimensional numpy array.  the first dimension will
+    be the time periods and the second dimension will be the asset identifiers.  the
+    values in the array will be the period-over-period returns.
+  
+  Created on July 25-27, 2022
+  """
+
+  asset_price_file: IO = open(asset_price_filepath, 'r')
+
+
+  # first check the contents of the file.
+  prior_period_prices: List = []
+  number_of_time_periods: int = 0
+
+  for line_number, current_line in enumerate(asset_price_file):
+    current_period_prices: List = re.findall(r'\w+\.*\w*', current_line)
+
+    for current_value in current_period_prices:
+      if not is_float(current_value):
+        return {'any_errors': True, 
+                'message': f"price {current_value:s} in period {line_number:d} isn\'t a floating-point number"}
+
+    if not prior_period_prices:
+      for current_value in current_period_prices:
+        prior_period_prices.append(float(current_value))
+
+    else:
+      if len(prior_period_prices) != len(current_period_prices) and len(current_period_prices) > 0:
+        return {'any_errors': True, 
+                'message': f"period {line_number:d} has {len(current_period_prices):d} prices but period {line_number - 1:d} has {len(prior_period_prices):d} prices"}
+
+    number_of_time_periods += 1
+
+
+  # next, line by line, read in the prices.  after the first line, calculate
+  #  the returns and store them in the asset_return_data dictionary
+  asset_return_data: np.ndarray = \
+    np.zeros((number_of_time_periods - 1, len(prior_period_prices)), dtype=np.float32)
+
+  prior_period_prices: List = []
+
+  asset_price_file.seek(0)
+  for line_number, current_line in enumerate(asset_price_file):
+    current_period_prices: List = re.findall(r'\w+\.*\w*', current_line)
+
+    if not prior_period_prices:
+      for current_value in current_period_prices:
+        prior_period_prices.append(float(current_value))
+#        print(f"{line_number:d}\t{float(current_value):8.6f}")
+
+    else:
+      for asset_id, current_value in enumerate(current_period_prices):
+        if abs(prior_period_prices[asset_id]) > 0.01:
+          asset_return_data[line_number - 1, asset_id] = \
+            float(current_value) / prior_period_prices[asset_id] - 1.0
+        else:
+          asset_return_data[line_number - 1, asset_id] = 0.0
+
+        prior_period_prices[asset_id] = float(current_value)
+
+
+  asset_price_file.close()
+#  print(asset_return_data.shape)
+#  time.sleep(5)
+
+  return {'any_errors': False, 'message': '', 'asset_return_data': asset_return_data}
+
+
+
+def import_asset_returns(asset_return_data: np.ndarray, portfolio_db: sqlite3.Connection):
+  """
+  This function will take the data in the 'asset_return_data' numpy array and
+  import each element into the 'asset_returns' table in the 'portfolio_db'
+  database.
+  
+  Created on June 25-27, 2022
+  """
+
+  insert_query: str = 'insert into asset_returns(time_period, asset, return) values (?, ?, ?);'
+
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
+
+  insert_records: List = []
+
+
+  # put the data into insert_records list, then upload it to the 'asset_returns' table
+  for current_period, current_returns in enumerate(asset_return_data):
+    for current_asset, current_value in enumerate(current_returns):
+      insert_records.append((current_period, current_asset, current_value, ))
+
+
+  db_cursor.executemany(insert_query, insert_records)
+  portfolio_db.commit()
+
+  db_cursor.close()
+
+
+  return
+
+
+
+def import_mean_covariance_matrices(asset_return_data: np.ndarray, 
+                                    portfolio_db: sqlite3.Connection) -> Dict:
+  """
+  This function will calculate the means and covariances of the returns in the
+   asset_return_data array.  It will then import them into the 'mean_returns' and  
+   'return_covariance_matrix' tables in the database.
+
+  It will return a dictionary with two keys:
+  * 'any_errors', will be False if there are any problems or True if there are any
+  * 'message', will be blank if there aren't any problems or will be a description
+     of the problem if there is one
+
+  Created on July 30-31, 2022
+  """
+
+  # first, calculate the mean returns and covariance matrix
+  mean_returns: np.ndarray = np.mean(asset_return_data, axis=0)
+
+  covariance_matrix: np.ndarray = np.cov(asset_return_data.T)
+
+#  print(mean_returns)
+#  print(mean_returns.shape)
+#  print(covariance_matrix)
+#  print(covariance_matrix.shape)
+#  time.sleep(12)
+
+
+  # now import the mean returns and covariance matrices into their tables
+  #  in the database.
+  insert_means_query: str = 'insert into mean_returns(asset, mean_return) values (?, ?);'
+  insert_covariances_query: str = \
+    'insert into return_covariance_matrix(asset1, asset2, var_covar) values (?, ?, ?);'
+
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
+
+
+  # put the data into insert_records list and then upload it to the 'mean_returns' table
+  insert_records: List = []
+
+  for current_item, current_value in enumerate(mean_returns):
+    insert_records.append((current_item + 1, float(current_value), ))
+
+
+  db_cursor.executemany(insert_means_query, insert_records)
+  portfolio_db.commit()
+#  print(insert_records)
+
+
+  # put the data into insert_records list and then upload it to the 'return_covariance_matrix' table
+  insert_records = []
+
+  for current_item1, current_row in enumerate(covariance_matrix):
+    for current_item2, current_value in enumerate(current_row):
+      insert_records.append((current_item1 + 1, current_item2 + 1, float(current_value), ))
+
+
+  db_cursor.executemany(insert_covariances_query, insert_records)
+  portfolio_db.commit()
+#  print(insert_records)
+#  time.sleep(12)
+
+
+  db_cursor.close()
+
+  return {'any_errors': False, 'message': ''}
 
 
 
