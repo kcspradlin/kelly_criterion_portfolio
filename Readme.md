@@ -1,10 +1,10 @@
 ### Readme
-#### Last updated on July 31, 2022
+#### Last updated on August 13, 2022
 
 
 ##### Background
 
-This project is based around a Python script that calculates portfolios 
+This project is focused on building a Python script that calculates portfolios 
 consisting of one or more risky or risk-free assets, like stocks and ETFs.
 The portfolios are constructed using the concept of the Kelly Criterion.
 
@@ -47,22 +47,19 @@ the possibility that the allocations for some assets could be negative.  I
 eventually found a constrained optimization process that finds the desired
 portfolio allocations.
 
-##### Using the Excess Return Script
+##### Using the Script
 
-Here are some instructions for using the script.
+Here are some instructions for using the 'kelly_criterion_portfolio.py' script.
 
-First, you need to run the scripts from the command line.
+First, you need to run the script from the command line.  The 
+'database_input_output.py' and 'file_input_output.py' files need to be in
+the same folder, since they have fucntions that are used by the 
+'kelly_criterion_portfolio.py' script.
 
-Second, you need to use Python 3.x to run it (I wrote it using Python 3.9.2)
-and you need to make sure that these modules are installed:
-
-* numpy
-* scipy
-* tqdm
-* quadprog.
-
-The script uses other modules, but these come with a standard Python 3.x
-installation.  I installed all of these using pip, so I know that method works.
+Second, I wrote it using Python 3.9.2, so I know that it works with that
+version of Python.  There are some modules you'll need to install, and 
+they're listed in the 'requirements.txt' file (you can install them using 
+'python3 -m pip install -r requirements.txt from the command line).
 
 Third, the script can read data from a file with the asset return statistics.
 It has to have a specific format:
@@ -75,48 +72,47 @@ It has to have a specific format:
   the matrix per line, with the variances and covariances separated by
   spaces or tabs.
 
-Fourth, the script can instead read data from a file with the asset prices,
-and then it will calculate the mean returns and covariances of the returns.  
-This file has to have a specific format:
+The script can also read prices from a file and use that data to calculate
+the mean returns and covariances of the returns.  This file has to have a
+specific format:
 
 * the prices in each period need to be on one row and separated by tabs
 * the prices on one row are assumed to come from the period (day, week, or
   any other interval of time) immediately after the period from which the
   prices on the row above it in the file came.
 
-When you run the script, you'll be shown a menu with four choices.  Enter
+When you run the script, you'll be shown a menu with five choices.  Enter
 a number from 1 to 5 to select one of the choices, or just hit the Enter
 key to exit.  Each choice takes you to a new screen, asks you for
 information and/or shows you something, and then brings you back to this
 main menu.
 
 Choice **1** will ask you to enter the directory in which the file with
-asset mean returns and a covariance matrix is located.  If it can find the
-directory and file, then the script will read the contents of the file
-into an internal database.
+asset mean returns and a covariance matrix is located.  Next it asks you
+for the name of the file.  If it can find the directory and file, the 
+script will read the contents of the file into an internal database.
 
 Choice **2** will ask you to enter the directory in which the file with
-asset prices is located.  If it can find the directory and file, then the
-script will read the contents of the file, calculate period-over-period
-returns using the prices, then calculate means and covariances of the
-returns, and finally store those returns, means, and covariances into an
-internal database.
+asset prices is located.  Next it asks you for the name of the file.  If
+it can find the directory and file, then the script will read the contents
+of the file, calculate period-over-period returns using the prices, then 
+calculate means and covariances of the returns, and finally store those 
+returns, means, and covariances into an internal database.
 
 Choice **3** displays the mean returns and the covariance matrix.  This
-gives you a way to validate the data that the script is using to calculate
+gives you a way to validate the data that the script will use to calculate
 the portfolio allocations and to run the portfolio value simulations.  If
-you haven't yet run Choice 1, it will prompt you to run it.  After six
-seconds, you will be taken back to the main menu.
+you haven't yet run Choice **1** or **2**, it will prompt you to run one
+of them.  After six seconds, you will be taken back to the main menu.
 
 Choice **4** will do several things.
 
 * First, it will ask you if you want to construct a set of portfolio
 allocations using the Kelly Criterion that require all allocations to be
 positive (aka - long-only portfolio), or that allow some allocations to
-be positive and some to be negative (aka - long-short portfolio, amongst
-other terms).  Enter 'Yes' or 'Y' if you want all of the allocations to
-be positive, or 'No' or 'N' if you want to allow some of the allocations 
-to be negative.
+be positive and some to be negative (aka - long-short portfolio).  
+Enter 'Yes' or 'Y' if you want all of the allocations to be positive, or
+'No' or 'N' if you want to allow some of the allocations to be negative.
 
 * Second, it will ask you if you want the computer to generate additional
 portfolios to test in a simulation, or if you want to import your own
@@ -126,10 +122,11 @@ them by making small random changes to two randomly-selected assets'
 allocations in the Kelly Criterion portfolio.
 
   * If you import your own portfolios, you will be asked to enter the
-directory in which a file with portfolio allocations is located.  If it
-can find the directory and the file, the script will read the contents of
-the file.  Regardless of the how it gets the portfolios, the script will
-copy them and the Kelly Criterion-based portfolio into an internal database.
+directory in which a file with portfolio allocations is located.  Next it
+asks you for the name of the file.  If it can find the directory and the 
+file, the script will read the contents of the file.  Regardless of how 
+it gets the portfolios, the script will copy them and the Kelly 
+Criterion-based portfolio into an internal database.
 
 * Lastly, the script will display up to six of the portfolios the computer
 generates or you provide, along with the Kelly Criterion-based one.  After
@@ -150,7 +147,7 @@ specific format:
 Choice **5** runs some simulations.  It uses the mean returns and
 covariance matrix to generate random asset returns, using a multivariate
 normal distribution.  It will use the returns to simulate values of the
-portfolios from Choice 3 600 periods into the future.  In each period, 
+portfolios from Choice **3** 600 periods into the future.  In each period, 
 the returns of the assets will be simulated, the portfolio's new value 
 will be calculated, and then the portfolio will be rebalanced between the 
 different assets.  After 600 periods, the geometric mean growth rates of 
@@ -172,10 +169,16 @@ statistics include:
 
 ##### Hints and Other Information
 
-* I provided an example of the 'asset_return_statistics.txt' file.  It
+* I provided an example file named 'asset_return_statistics.txt'.  It
 contains means, variances, and covariances of the weekly total returns of
 the SPY, GLD, and IEF ETFs.  As of June 2022, the statistics are based on
 almost 18 years of data.
+
+* I also provided an example file named 'asset_price_data.txt'.  It
+contains almost years of weekly prices (adjusted for splits and 
+reinvested dividends) of the SPY, GLD, and IEF ETFs.  If you import it, 
+the script's calculated means, variances, and covariances will be pretty
+close to the ones in the 'asset_return_statistics.txt' file.
 
 * In order to derive the formula for calculating the optimal portfolio
 allocations, I needed to make the assumption that the squares of the
@@ -202,5 +205,8 @@ to calculate the optimal portfolio allocations.
   - An example of using excess returns to find a portfolio using the Kelly
   Criterion framework can be found in [another paper written by Edward Thorp, along with 
 Louis Rotando](http://www.edwardothorp.com/wp-content/uploads/2016/11/TheKellyCriterionAndTheStockMarket.pdf).  
+  - Here's a link that explains why many researchers use excess returns 
+(it's in the 'Mathematical convenience of excess returns' section of this link): 
+[stackexchange link](https://quant.stackexchange.com/questions/28418/interpretation-of-excess-return)
 <br>
 
