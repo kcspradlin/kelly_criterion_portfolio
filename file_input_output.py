@@ -423,7 +423,7 @@ def print_simulation_results(asset_returns_filepath: str,
                              geometric_mean_returns: np.ndarray,
                              portfolio_values: np.ndarray,
                              simulation_parameters: Dict,
-                             asset_return_parameters: Dict,
+                             asset_distribution_info: Dict,
                              portfolio_drawdown_levels: np.ndarray,
                              portfolio_drawdown_probabilities: np.ndarray,
                              test_portfolios: np.ndarray):
@@ -459,19 +459,37 @@ def print_simulation_results(asset_returns_filepath: str,
 
 
   # print information on the assets
-  results_file.write("\nAsset mean returns:")
-  for current_asset, current_mean in enumerate(asset_return_parameters['asset_mean_returns']):
-    results_file.write(f"\nAsset {current_asset:d}: {100.0 * current_mean:6.4f}%")
+  results_file.write(f"\nDistribution of simulated asset return: {asset_distribution_info['distribution']:s}")
 
-  results_file.write("\n\nAsset covariance matrix:\n")
-  for asset_1, current_variance_vector in enumerate(asset_return_parameters['asset_covariance_matrix']):
-    results_file.write(f"\t{asset_1:d}")
+  if 'mean_returns' in asset_distribution_info['parameters']:
+    results_file.write("\nMean returns:")
+    for current_asset, current_mean in enumerate(asset_distribution_info['parameters']['mean_returns']):
+      results_file.write(f"\nAsset {current_asset:d}: {100.0 * current_mean:6.4f}%")
 
-  for asset_1, current_variance_vector in enumerate(asset_return_parameters['asset_covariance_matrix']):
-    results_file.write(f"\n{asset_1:d}")
+  if 'covariance_matrix' in asset_distribution_info['parameters']:
+    results_file.write("\n\nCovariance matrix:\n")
+    for asset_1, current_variance_vector in enumerate(asset_distribution_info['parameters']['covariance_matrix']):
+      results_file.write(f"\t{asset_1:d}")
 
-    for current_variance in current_variance_vector:
-      results_file.write(f"\t{current_variance:8.6f}")
+    for asset_1, current_variance_vector in enumerate(asset_distribution_info['parameters']['covariance_matrix']):
+      results_file.write(f"\n{asset_1:d}")
+
+      for current_variance in current_variance_vector:
+        results_file.write(f"\t{current_variance:8.6f}")
+
+  if 'shape_matrix' in asset_distribution_info['parameters']:
+    results_file.write("\n\nShape matrix:\n")
+    for asset_1, current_variance_vector in enumerate(asset_distribution_info['parameters']['shape_matrix']):
+      results_file.write(f"\t{asset_1:d}")
+
+    for asset_1, current_variance_vector in enumerate(asset_distribution_info['parameters']['shape_matrix']):
+      results_file.write(f"\n{asset_1:d}")
+
+      for current_variance in current_variance_vector:
+        results_file.write(f"\t{current_variance:8.6f}")
+
+  if 'degrees_freedom' in asset_distribution_info['parameters']:
+    results_file.write(f"\n\nDegrees of freedom {asset_distribution_info['parameters']['degrees_freedom']:8.2f}") 
 
 
   # print statistics on the geometric mean returns
@@ -689,4 +707,3 @@ def validate_asset_return_data(mean_return_data: str, covariance_data: List) -> 
 
 
   return {'any_errors': False, 'message': ''}
-

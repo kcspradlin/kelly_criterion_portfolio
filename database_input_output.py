@@ -36,6 +36,57 @@ import numpy as np
 
 
 
+def get_asset_returns(portfolio_db: sqlite3.Connection) -> np.ndarray:
+  """
+  This function will query the 'asset_returns' table in the 
+   'portfolio_db' database for its contents, and then put them into a
+   numpy array, which will be returned to the calling function.
+
+  Created on August 13, 2022
+  """
+
+  # first, get the number of assets and time periods in the 
+  #  'asset_returns' table, in order to set up the numpy array
+  db_cursor: sqlite3.Cursor = portfolio_db.cursor()
+
+  count_query: str = 'select max(time_period), max(asset) from asset_returns;'
+
+  db_cursor.execute(count_query)
+
+  return_records = db_cursor.fetchone()
+
+  if return_records[0] is not None and return_records[1] is not None:
+    asset_returns: np.ndarray = np.zeros((return_records[0], return_records[1]), dtype=np.float32)
+#    print(return_records[0])
+#    print(return_records[1])
+#    time.sleep(4)
+  else:
+    asset_returns: np.ndarray = np.zeros(1)
+    return mean_returns
+
+
+  # now, get the returns and then copy them into the numpy array
+  select_query: str = 'select time_period, asset, return from asset_returns order by time_period, asset;'
+
+  db_cursor.execute(select_query)
+
+  return_records = db_cursor.fetchall()
+
+  if return_records is not None:
+    for current_record in return_records:
+#      print(current_record[0])
+#      print(current_record[1])
+#      print(current_record[2])
+#      time.sleep(2)
+      asset_returns[current_record[0] - 1, current_record[1] - 1] = current_record[2]
+
+
+  db_cursor.close()
+
+  return asset_returns
+
+
+
 def get_covariance_matrix(portfolio_db: sqlite3.Connection) -> np.ndarray:
   """
   This function will query the 'return_covariance_matrix' table in the 
@@ -242,7 +293,7 @@ def import_asset_returns(asset_return_data: np.ndarray, portfolio_db: sqlite3.Co
   # put the data into insert_records list, then upload it to the 'asset_returns' table
   for current_period, current_returns in enumerate(asset_return_data):
     for current_asset, current_value in enumerate(current_returns):
-      insert_records.append((current_period, current_asset, current_value, ))
+      insert_records.append((current_period + 1, current_asset + 1, float(current_value), ))
 
 
   db_cursor.executemany(insert_query, insert_records)

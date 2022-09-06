@@ -1,5 +1,5 @@
 ### Readme
-#### Last updated on August 13, 2022
+#### Last updated on September 5, 2022
 
 
 ##### Background
@@ -53,7 +53,7 @@ Here are some instructions for using the 'kelly_criterion_portfolio.py' script.
 
 First, you need to run the script from the command line.  The 
 'database_input_output.py' and 'file_input_output.py' files need to be in
-the same folder, since they have fucntions that are used by the 
+the same folder, since they have functions that are used by the 
 'kelly_criterion_portfolio.py' script.
 
 Second, I wrote it using Python 3.9.2, so I know that it works with that
@@ -65,16 +65,18 @@ Third, the script can read data from a file with the asset return statistics.
 It has to have a specific format:
 
 * the first line must have 'mean returns' on it
-* the second line must have the mean excess returns of the assets, separated
-  by spaces or tabs
+* the second line must have the mean returns of the assets, separated by
+  spaces or tabs
 * the fourth line must have 'covariance matrix' on it
 * the fifth and later lines must have the covariance matrix.  one row from
   the matrix per line, with the variances and covariances separated by
   spaces or tabs.
 
 The script can also read prices from a file and use that data to calculate
-the mean returns and covariances of the returns.  This file has to have a
-specific format:
+the assets' returns.  Those are used to calculate the mean returns and 
+the associated covariance matrix.  The returns can also be used to find
+multivariate normal or Student's t distributions, which are used to
+simulate portfolio returns.  This file has to have a specific format:
 
 * the prices in each period need to be on one row and separated by tabs
 * the prices on one row are assumed to come from the period (day, week, or
@@ -144,19 +146,30 @@ specific format:
   assets' allocations are split up into columns by putting spaces between
   each number.
 
-Choice **5** runs some simulations.  It uses the mean returns and
-covariance matrix to generate random asset returns, using a multivariate
-normal distribution.  It will use the returns to simulate values of the
-portfolios from Choice **3** 600 periods into the future.  In each period, 
-the returns of the assets will be simulated, the portfolio's new value 
-will be calculated, and then the portfolio will be rebalanced between the 
-different assets.  After 600 periods, the geometric mean growth rates of 
-the portfolios will be recorded.  The simulations will be repeated for a 
-total 10,000 times.  At the end, statistics on each portfolio used in 
-these simulations will be printed to a file named 
-'multi-asset simulation_statistics_v' followed by a number.  These 
-statistics include:
+Choice **5** runs some simulations.  It will first ask you to select a
+distribution to use to simulate asset returns.  Currently, you can choose
+from:
 
+* a multivariate normal distribution, or
+* a multivariate Student's t distribution.
+
+In order to use any distribution other than the normal one, you need to
+have first imported asset prices using Choice **2**.  The code will use
+the asset returns to find parameters for a distribution that best fits
+the asset returns (using an MLE approach).
+Next, the code will generate random asset returns, which will be used to
+simulate values of the portfolios from Choice **3**, 600 periods into the
+future.  In each period, the returns of the assets will be simulated, the
+portfolio's new value will be calculated, and then the portfolio will be 
+rebalanced between the different assets.  After 600 periods, the 
+geometric mean growth rates of the portfolios will be recorded.  The 
+simulations will be repeated for a total 10,000 times.  At the end, 
+statistics on each portfolio used in these simulations will be printed to 
+a file named 'multi-asset simulation_statistics_v' followed by a number.  
+These statistics include:
+
+* the type and parameters of the distribution used to simulate the asset
+  returns.
 * mean, standard deviation, skewness, and kurtosis of geometric mean returns
 * median of portfolio values at select periods.
 * lowest 1% of portfolio values at select periods (1% VaR).
@@ -206,7 +219,7 @@ to calculate the optimal portfolio allocations.
   Criterion framework can be found in [another paper written by Edward Thorp, along with 
 Louis Rotando](http://www.edwardothorp.com/wp-content/uploads/2016/11/TheKellyCriterionAndTheStockMarket.pdf).  
   - Here's a link that explains why many researchers use excess returns 
-(it's in the 'Mathematical convenience of excess returns' section of this link): 
+(it's in the 'Mathematical convenience of excess returns' section): 
 [stackexchange link](https://quant.stackexchange.com/questions/28418/interpretation-of-excess-return)
 <br>
 

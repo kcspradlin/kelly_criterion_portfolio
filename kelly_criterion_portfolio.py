@@ -41,6 +41,7 @@ import quadprog
 import tqdm
 import file_input_output
 import database_input_output
+import asset_simulation
 
 
 
@@ -266,7 +267,7 @@ def get_asset_return_data(asset_return_filepath: str, portfolio_db: sqlite3.Conn
     time.sleep(6)
 
 
-  function_return: Dict = is_matrix_pos_semidef(covariance_matrix)
+  function_return: Dict = asset_simulation.is_matrix_pos_semidef(covariance_matrix)
   if not function_return['pass_test']:
     print("The covariance matrix needs to be positive semi-definite to run the simulations.")
     print(f"{function_return['message']:s}")
@@ -275,63 +276,6 @@ def get_asset_return_data(asset_return_filepath: str, portfolio_db: sqlite3.Conn
 
 
   return {'any_errors': False, 'message': ''}
-
-
-
-def is_matrix_pos_semidef(test_matrix: np.array) -> Dict:
-  """
-  This function will test the array test_matrix to see if it's positive 
-   semi-definite, using this definition:
-   
-   "A positive semidefinite matrix is a Hermitian matrix all of whose eigenvalues are nonnegative."
-   https://mathworld.wolfram.com/HermitianMatrix.html
-   
-   It will check if the matrix is square, Hermitian, and only has positive 
-   eigenvalues.
-   
-   The function will return a dictionary.  One key is 'pass_test', which
-   will be True if it's positive semi-definite and False if not.  The
-   other key is 'message' will will state why the matrix failed the test,
-   or will be blank it it passed the test.
-   
-  Created on June 8, 2022
-  """
-
-  pass_test: bool = False
-  message: str = ''
-
-
-  # check if the matrix is square
-  matrix_dimensions: List = list(test_matrix.shape)
-
-  if len(matrix_dimensions) != 2:
-    message = 'Matrix needs to have 2 dimensions'
-    return {'pass_test': pass_test, 'message': message}
-
-  if matrix_dimensions[0] != matrix_dimensions[1]:
-    message = 'Matrix needs to be square'
-    return {'pass_test': pass_test, 'message': message}
-
-
-  # check if the matrix is Hermitian
-  complex_conjugate: np.array = np.matrix.getH(test_matrix)
-
-  if not np.array_equal(test_matrix, complex_conjugate):
-    message = "Matrix isn\'t Hermitian - equal to complex conjugate of itself"
-    return {'pass_test': pass_test, 'message': message}
-
-
-  # calculate the matrix's eigenvalues and check if any are negative
-  for current_eigenvalue in np.linalg.eigvals(test_matrix):
-    if current_eigenvalue < 0:
-      message = f"Matrix has eigenvalue of {current_eigenvalue:6.4f}"
-      break
-
-
-  if message:
-    return {'pass_test': pass_test, 'message': message}
-  else:
-    return {'pass_test': True, 'message': ''}
 
 
 
@@ -417,6 +361,8 @@ def show_return_data(portfolio_db: sqlite3.Connection):
   print("\nCovariance matrix")
   print(covariance_matrix)
 
+#  asset_returns: np.ndarray = database_input_output.get_asset_returns(portfolio_db)
+#  print(asset_returns)
 
   time.sleep(6)
 
@@ -875,37 +821,62 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
    Criterion to allocate wealth to risky venture usually allocate some
    percent of the optimal f's to the risky assets.
   
-  Created on June 6-13 and 20-23, 2022
+  Created on June 6-13, June 20-23, August 15, and September 3, 2022
   """
 
   os.system('clear')
 
 
-  # simulation parameters and other information
-  mean_returns: np.ndarray = database_input_output.get_mean_returns(portfolio_db)
-  if mean_returns.shape[0] == 1:
-    print("Need to import mean returns.")
+  # get the distribution to use to simulate the asset returns
+  asset_distribution_info: Dict = {}
+  number_of_assets: int = 0
+
+  function_results: Dict = asset_simulation.get_type_simulation_returns(portfolio_db)
+  if function_results['any_errors']:
+    print(f"{function_results['message']:s}")
     time.sleep(6)
     return
+  else:
+    print(f"\nUsing {function_results['distribution']:s} distribution")
+    asset_distribution_info['distribution'] = function_results['distribution']
+    asset_distribution_info['parameters'] = function_results['parameters']
+    number_of_assets = function_results['parameters']['number_of_assets']
+    
 
-  mean_returns = mean_returns.flatten()
+  if asset_distribution_info['distribution'] not in set(["Normal", "Student's t"]):
+    asset_distribution_info['distribution'] = "Normal"
+    asset_distribution_info['parameters'] = {}
+    
+ 
+    # default simulation parameters
+    mean_returns: np.ndarray = database_input_output.get_mean_returns(portfolio_db)
+    if mean_returns.shape[0] == 1:
+      print("Need to import mean returns.")
+      time.sleep(6)
+      return
 
-  covariance_matrix: np.ndarray = database_input_output.get_covariance_matrix(portfolio_db)
-  if covariance_matrix.shape[0] == 1:
-    print("Need to import covariance matrix.")
-    time.sleep(6)
-    return
+    asset_distribution_info['parameters']['mean_returns'] = mean_returns.flatten()
 
-  function_return: Dict = is_matrix_pos_semidef(covariance_matrix)
-  if not function_return['pass_test']:
-    print("The covariance matrix needs to be positive semi-definite to run the simulations.")
-    print(f"{function_return['message']:s}")
-    print("Can\'t run the simulation.")
-    time.sleep(6)
-    return
+    covariance_matrix: np.ndarray = database_input_output.get_covariance_matrix(portfolio_db)
+    if covariance_matrix.shape[0] == 1:
+      print("Need to import covariance matrix.")
+      time.sleep(6)
+      return
 
-  number_of_assets: int = covariance_matrix.shape[0]
+    function_return: Dict = asset_simulation.is_matrix_pos_semidef(covariance_matrix)
+    if not function_return['pass_test']:
+      print("The covariance matrix needs to be positive semi-definite to run the simulations.")
+      print(f"{function_return['message']:s}")
+      print("Can\'t run the simulation.")
+      time.sleep(6)
+      return
 
+    asset_distribution_info['parameters']['covariance_matrix'] = covariance_matrix
+
+    number_of_assets = covariance_matrix.shape[0]
+
+
+  # get the portfolios to test
   test_portfolios: np.ndarray = database_input_output.get_portfolio_allocations(portfolio_db)
   if test_portfolios.shape[0] == 1:
     print("Need to calculate the portfolio allocations.")
@@ -914,6 +885,8 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
 
   number_of_portfolios: int = test_portfolios.shape[0]
 
+
+  # set other simulation parameters
   number_of_periods: int = 600
   number_of_sample_periods: int = 10
   length_of_sample_period: int = int(number_of_periods / number_of_sample_periods)
@@ -966,7 +939,9 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
       units_assets = np.divide(units_assets, price_assets)
 
       # calculate the new portfolio values
-      return_assets: np.ndarray = np.random.multivariate_normal(mean_returns, covariance_matrix, 1)
+      return_assets: np.ndarray = \
+        asset_simulation.generate_simulated_asset_returns(asset_distribution_info['distribution'], 
+                                                          asset_distribution_info['parameters'])
       return_assets = np.add(return_assets, 1.0)
       price_assets = np.multiply(return_assets, price_assets)
 
@@ -1030,8 +1005,7 @@ def simulate_portfolio_values(portfolio_db: sqlite3.Connection):
                                               'number_of_portfolios': number_of_portfolios,
                                               'length_of_sample_period': length_of_sample_period,
                                               'starting_portfolio_value': starting_portfolio_value},
-                                             {'asset_mean_returns': mean_returns,
-                                              'asset_covariance_matrix': covariance_matrix},
+                                             asset_distribution_info,
                                              portfolio_drawdown_levels, 
                                              portfolio_drawdown_probabilities,
                                              test_portfolios)
